@@ -59,9 +59,12 @@ save
   real, allocatable     :: dqtdylst(:,:)
   real, allocatable     :: dqtdtlst(:,:)
   real, allocatable     :: thlpcart(:,:)
+
+  real, allocatable     :: dudtlst (:,:)
+  real, allocatable     :: dvdtlst (:,:)
+
   real, allocatable     :: thlproft(:,:)
   real, allocatable     :: qtproft (:,:)
-
 
 
 contains
@@ -75,28 +78,35 @@ contains
 
     character (80):: chmess
     character (1) :: chmess1
-    integer :: k,t, ierr
+    integer :: k, t, ierr
     real :: dummyr
     real, allocatable, dimension (:) :: height
+
     if (.not. ltimedep) return
 
     allocate(height(k1))
     allocate(timeflux (0:kflux))
     allocate(wqsurft  (kflux))
     allocate(wtsurft  (kflux))
-    allocate(timels  (0:kls))
-    allocate(ugt     (k1,kls))
-    allocate(vgt     (k1,kls))
-    allocate(wflst   (k1,kls))
-    allocate(dqtdxlst(k1,kls))
-    allocate(dqtdylst(k1,kls))
-    allocate(dqtdtlst(k1,kls))
-    allocate(thlpcart(k1,kls))
-    allocate(thlproft(k1,kls))
-    allocate(qtproft(k1,kls))
-    allocate(thlst   (0:kls))
-    allocate(qtst    (0:kls))
-    allocate(pst    (0:kls))
+    allocate(timels   (0:kls))
+
+    allocate(ugt      (k1,kls))
+    allocate(vgt      (k1,kls))
+    allocate(wflst    (k1,kls))
+    allocate(dqtdxlst (k1,kls))
+    allocate(dqtdylst (k1,kls))
+    allocate(dqtdtlst (k1,kls))
+    allocate(thlpcart (k1,kls))
+
+    allocate(dudtlst  (k1,kls))
+    allocate(dvdtlst  (k1,kls))
+
+    allocate(thlproft (k1,kls))
+    allocate(qtproft  (k1,kls))
+
+    allocate(thlst    (0:kls))
+    allocate(qtst     (0:kls))
+    allocate(pst      (0:kls))
 
     timeflux = 0
     wqsurft  = wqsurf
@@ -113,14 +123,16 @@ contains
     dqtdylst = 0
     dqtdtlst = 0
     thlpcart = 0
+
+    dudtlst  = 0
+    dvdtlst  = 0
+
     thlproft = 0
     qtproft  = 0
 
     if (myid==0) then
 
-!    --- load lsforcings---
-
-
+!     --- load lsforcings---
       open(ifinput,file='ls_flux.inp.'//cexpnr)
       read(ifinput,'(a80)') chmess
       write(6,*) chmess
@@ -132,9 +144,7 @@ contains
       timeflux = 0
       timels   = 0
 
-
-!      --- load fluxes---
-
+!     --- load fluxes---
       t    = 0
       ierr = 0
       do while (timeflux(t) < (tres*real(btime)+runtime))
@@ -142,21 +152,22 @@ contains
         read(ifinput,*, iostat = ierr) timeflux(t), wtsurft(t), wqsurft(t),thlst(t),qtst(t),pst(t)
         write(*,'(i8,6e12.4)') t,timeflux(t), wtsurft(t), wqsurft(t),thlst(t),qtst(t),pst(t)
         if (ierr < 0) then
-            stop 'STOP: No time dependend data for end of run (surface fluxes)'
+          stop 'STOP: No time dependend data for end of run (surface fluxes)'
         end if
       end do
       if(timeflux(1)>(tres*real(btime)+runtime)) then
-         write(6,*) 'Time dependent surface variables do not change before end of'
-         write(6,*) 'simulation. --> only large scale forcings'
-         ltimedepsurf=.false.
+        write(6,*) 'Time dependent surface variables do not change before end of'
+        write(6,*) 'simulation. --> only large scale forcings'
+        ltimedepsurf=.false.
       endif
-! flush to the end of fluxlist
+
+!     --- flush to the end of fluxlist ---
       do while (ierr ==0)
         read (ifinput,*,iostat=ierr) dummyr
       end do
       backspace (ifinput)
-!     ---load large scale forcings----
 
+!     ---load large scale forcings ----
       t = 0
 
       do while (timels(t) < (tres*real(btime)+runtime))
@@ -171,6 +182,7 @@ contains
           end if
         end do
         write (*,*) 'timels = ',timels(t)
+
         do k=1,kmax
           read (ifinput,*) &
             height  (k)  , &
@@ -180,10 +192,12 @@ contains
             dqtdxlst(k,t), &
             dqtdylst(k,t), &
             dqtdtlst(k,t), &
-            thlpcart(k,t)
+            thlpcart(k,t), &
+            dudtlst (k,t), &
+            dvdtlst (k,t)
         end do
         do k=kmax,1,-1
-          write (6,'(3f7.1,5e12.4)') &
+          write (6,'(3f7.1,7e12.4)') &
             height  (k)  , &
             ugt     (k,t), &
             vgt     (k,t), &
@@ -191,7 +205,9 @@ contains
             dqtdxlst(k,t), &
             dqtdylst(k,t), &
             dqtdtlst(k,t), &
-            thlpcart(k,t)
+            thlpcart(k,t), &
+            dudtlst (k,t), &
+            dvdtlst (k,t)
         end do
       end do
 
@@ -219,6 +235,10 @@ contains
     call MPI_BCAST(dqtdylst,kmax*kls,MY_REAL,0,comm3d,mpierr)
     call MPI_BCAST(dqtdtlst,kmax*kls,MY_REAL,0,comm3d,mpierr)
     call MPI_BCAST(thlpcart,kmax*kls,MY_REAL,0,comm3d,mpierr)
+
+    call MPI_BCAST(dudtlst,kmax*kls,MY_REAL,0,comm3d,mpierr)
+    call MPI_BCAST(dvdtlst,kmax*kls,MY_REAL,0,comm3d,mpierr)
+
     call MPI_BCAST(thlproft,kmax*kls,MY_REAL,0,comm3d,mpierr)
     call MPI_BCAST(qtproft ,kmax*kls,MY_REAL,0,comm3d,mpierr)
 
@@ -265,7 +285,8 @@ contains
 
   subroutine timedepz
     use modfields,   only : ug, vg, dqtdtls,dqtdxls,dqtdyls, wfls,whls, &
-                            thlpcar,dthldxls,dthldyls,dudxls,dudyls,dvdxls,dvdyls,dpdxl,dpdyl
+                            thlpcar,dthldxls,dthldyls,dudxls,dudyls,dvdxls,dvdyls,dpdxl,dpdyl,&
+                            dudtls, dvdtls
     use modglobal,   only : rtimee,om23_gs,dzf,dzh,k1,kmax,llsadv
     use modmpi,      only : myid
     implicit none
@@ -292,7 +313,8 @@ contains
     dqtdyls = dqtdylst(:,t) + fac * ( dqtdylst(:,t+1) - dqtdylst(:,t) )
     dqtdtls = dqtdtlst(:,t) + fac * ( dqtdtlst(:,t+1) - dqtdtlst(:,t) )
     thlpcar = thlpcart(:,t) + fac * ( thlpcart(:,t+1) - thlpcart(:,t) )
-
+    dudtls  = dudtlst (:,t) + fac * ( dudtlst (:,t+1) - dudtlst (:,t) )
+    dvdtls  = dvdtlst (:,t) + fac * ( dvdtlst (:,t+1) - dvdtlst (:,t) )
 
     do k=1,kmax
       dpdxl(k) =  om23_gs*vg(k)
@@ -360,7 +382,7 @@ contains
     use modtimedepsv, only : exittimedepsv
     implicit none
     if (.not. ltimedep) return
-    deallocate(timels,ugt,vgt,wflst,dqtdxlst,dqtdylst,dqtdtlst,thlpcart)
+    deallocate(timels,ugt,vgt,wflst,dqtdxlst,dqtdylst,dqtdtlst,thlpcart,dudtlst,dvdtlst)
     deallocate(timeflux, wtsurft,wqsurft,thlst,qtst,pst)
     call exittimedepsv
 
