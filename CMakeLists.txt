@@ -56,6 +56,17 @@ FIND_PATH(NETCDF_INCLUDE_DIR netcdf.mod NETCDF.mod
   DOC "NetCDF include directory (must contain netcdf.mod)"
 )
 
+# BvS: unfortunately necessary on KNMI Fedora's
+FIND_PATH(MPI_INCLUDE_DIR mpi.mod
+  PATHS
+  ${ADDMODULEPATH}/include
+  /usr/include
+  $ENV{HOME}/include
+  /usr/lib64/gfortran/modules/mpich
+  /usr/lib64/gfortran/modules/openmpi
+  DOC "MPI include directory (must contain mpi.mod)"
+)
+
 FIND_LIBRARY(NETCDF_C_LIB netcdf
   PATHS
   $ENV{SARA_NETCDF_LIB}
@@ -89,6 +100,12 @@ if(NETCDF_INCLUDE_DIR)
 else(NETCDF_INCLUDE_DIR)
   MESSAGE(STATUS "WARNING: No NETCDF bindings are found.")
 endif(NETCDF_INCLUDE_DIR)
+
+if(MPI_INCLUDE_DIR)
+  include_directories(${MPI_INCLUDE_DIR})
+else(MPI_INCLUDE_DIR)
+  MESSAGE(STATUS "WARNING: No mpi.mod found")
+endif(MPI_INCLUDE_DIR)
 
 if(NETCDF_C_LIB)
   set(NETCDF_LIBS ${NETCDF_C_LIB})
