@@ -44,6 +44,7 @@ save
   integer(kind=longint):: idtav, itimeav, tnext, tnextwrite
   integer          :: nsamples
   logical          :: lmicrostat = .false.
+  logical          :: lascii = .true.
   integer, parameter      :: nrfields = 5  , &
                  iauto    = 2 , &
                   iaccr    = 3 , &
@@ -93,7 +94,7 @@ subroutine initbulkmicrostat
     integer      :: ierr
 
     namelist/NAMBULKMICROSTAT/ &
-    lmicrostat, dtav, timeav
+    lmicrostat, dtav, timeav, lascii
 
     if ((imicro /=imicro_bulk) .and. (imicro /= imicro_sice)) return
 
@@ -111,9 +112,11 @@ subroutine initbulkmicrostat
       close(ifnamopt)
     end if
 
-    call MPI_BCAST(lmicrostat  ,1,MPI_LOGICAL  ,0,comm3d,mpierr)
-    call MPI_BCAST(dtav    ,1,MY_REAL  ,0,comm3d,mpierr)
-    call MPI_BCAST(timeav    ,1,MY_REAL  ,0,comm3d,mpierr)
+    call MPI_BCAST(lmicrostat, 1, MPI_LOGICAL, 0,comm3d, mpierr)
+    call MPI_BCAST(lascii,     1, MPI_LOGICAL, 0,comm3d, mpierr)
+    call MPI_BCAST(dtav,       1, MY_REAL,     0,comm3d, mpierr)
+    call MPI_BCAST(timeav,     1, MY_REAL,     0,comm3d, mpierr)
+
     idtav = dtav/tres
     itimeav = timeav/tres
 
@@ -172,7 +175,7 @@ subroutine initbulkmicrostat
     Dvrmn    = 0.0
 
 
-    if (myid == 0) then
+    if (myid == 0 .and. lascii) then
       open (ifoutput,file = 'precep.'//cexpnr ,status = 'replace')
       close(ifoutput)
       open (ifoutput,file = 'nptend.'//cexpnr ,status = 'replace')
@@ -387,123 +390,126 @@ subroutine initbulkmicrostat
     end where
 
     if (myid == 0) then
-    open (ifoutput,file='precep.'//cexpnr,position='append')
-    write(ifoutput,'(//2A,/A,F5.0,A,I4,A,I2,A,I2,A)')         &
-      '#-------------------------------------------------------------'   &
-      ,'---------------------------------)'           &
-      ,'#',(timeav),'--- AVERAGING TIMESTEP --- '         &
-      ,nhrs,':',nminut,':',nsecs             &
-      ,'   HRS:MIN:SEC AFTER INITIALIZATION '
-    write (ifoutput,'(2A/A/A/2A/2A/2A)')             &
-      '#------------------------------------------------------------'     &
-      ,'------------'                 &
-      ,'#               --------   PRECIPITATION ------    '       &
-      ,'#                                                           '     &
-      ,'# LEV HEIGHT   RHO(k)  PRES  |CLOUDCOVER  ECHORAINRATE  PRECCOUNT '   &
-      ,'    NRRAIN      RAINCOUNT     PREC(k)     <Dvr(k)>     <qr(k)>'   &
-      ,'#      (M)             (MB)  |----------  ---W/M2----   --------- '   &
-      ,'    ------      ---------     -------     --------    ---------'   &
-      ,'#-----------------------------------------------------------------'   &
-      ,'---------------------------------------------------------------'
-    write(ifoutput,'(I4,F10.2,F8.3,F7.1,8E13.5)') &
-      (k          , &
-      zf    (k)      , &
-      rhof    (k)      , &
-      presf    (k)/100.    , &
-      cloudcountmn  (k)      , &
-      prec_prcmn  (k)*rhof(k)*rlv  , &
-      preccountmn  (k)      , &
-      Nrrainmn  (k)      , &
-      raincountmn  (k)      , &
-      precmn    (k)*rhof(k)*rlv  , &
-      Dvrmn    (k)      , &
-      qrmn    (k)      , &
-      k=1,kmax)
-    close(ifoutput)
+      if (lascii) then
+        open (ifoutput,file='precep.'//cexpnr,position='append')
+        write(ifoutput,'(//2A,/A,F5.0,A,I4,A,I2,A,I2,A)')         &
+          '#-------------------------------------------------------------'   &
+          ,'---------------------------------)'           &
+          ,'#',(timeav),'--- AVERAGING TIMESTEP --- '         &
+          ,nhrs,':',nminut,':',nsecs             &
+          ,'   HRS:MIN:SEC AFTER INITIALIZATION '
+        write (ifoutput,'(2A/A/A/2A/2A/2A)')             &
+          '#------------------------------------------------------------'     &
+          ,'------------'                 &
+          ,'#               --------   PRECIPITATION ------    '       &
+          ,'#                                                           '     &
+          ,'# LEV HEIGHT   RHO(k)  PRES  |CLOUDCOVER  ECHORAINRATE  PRECCOUNT '   &
+          ,'    NRRAIN      RAINCOUNT     PREC(k)     <Dvr(k)>     <qr(k)>'   &
+          ,'#      (M)             (MB)  |----------  ---W/M2----   --------- '   &
+          ,'    ------      ---------     -------     --------    ---------'   &
+          ,'#-----------------------------------------------------------------'   &
+          ,'---------------------------------------------------------------'
+        write(ifoutput,'(I4,F10.2,F8.3,F7.1,8E13.5)') &
+          (k          , &
+          zf    (k)      , &
+          rhof    (k)      , &
+          presf    (k)/100.    , &
+          cloudcountmn  (k)      , &
+          prec_prcmn  (k)*rhof(k)*rlv  , &
+          preccountmn  (k)      , &
+          Nrrainmn  (k)      , &
+          raincountmn  (k)      , &
+          precmn    (k)*rhof(k)*rlv  , &
+          Dvrmn    (k)      , &
+          qrmn    (k)      , &
+          k=1,kmax)
+        close(ifoutput)
 
-    open (ifoutput,file='nptend.'//cexpnr,position='append')
-    write(ifoutput,'(//2A,/A,F5.0,A,I4,A,I2,A,I2,A)')         &
-      '#-------------------------------------------------------------'   &
-      ,'---------------------------------)'           &
-      ,'#',(timeav),'--- AVERAGING TIMESTEP --- '         &
-      ,nhrs,':',nminut,':',nsecs             &
-      ,'   HRS:MIN:SEC AFTER INITIALIZATION '
-    write (ifoutput,'(2A/A/A/2A/A/A)')             &
-      '#------------------------------------------------------------'     &
-      , '------------'               &
-      ,'#               --------   T E N D E N C I E S NRAIN ------    '     &
-      ,'#                                                           '     &
-      ,'# LEV HEIGHT   PRES  |  AUTO         ACCR          SEDIM    '     &
-      ,'     EVAP         TOT '             &
-      ,'#      (M)   (MB)  |  ---------   (#/M3/S)      ----------'     &
-      ,'#-----------------------------------------------------------'
-    write(ifoutput,'(I4,F10.2,F7.1,5E13.5)') &
-      (k          , &
-      zf    (k)      , &
-      presf    (k)/100.    , &
-      Npmn    (k,iauto)    , &
-      Npmn    (k,iaccr)    , &
-      Npmn    (k,ised)    , &
-      Npmn    (k,ievap)    , &
-      sum(Npmn  (k,2:nrfields))    , &
-      k=1,kmax)
-    close(ifoutput)
+        open (ifoutput,file='nptend.'//cexpnr,position='append')
+        write(ifoutput,'(//2A,/A,F5.0,A,I4,A,I2,A,I2,A)')         &
+          '#-------------------------------------------------------------'   &
+          ,'---------------------------------)'           &
+          ,'#',(timeav),'--- AVERAGING TIMESTEP --- '         &
+          ,nhrs,':',nminut,':',nsecs             &
+          ,'   HRS:MIN:SEC AFTER INITIALIZATION '
+        write (ifoutput,'(2A/A/A/2A/A/A)')             &
+          '#------------------------------------------------------------'     &
+          , '------------'               &
+          ,'#               --------   T E N D E N C I E S NRAIN ------    '     &
+          ,'#                                                           '     &
+          ,'# LEV HEIGHT   PRES  |  AUTO         ACCR          SEDIM    '     &
+          ,'     EVAP         TOT '             &
+          ,'#      (M)   (MB)  |  ---------   (#/M3/S)      ----------'     &
+          ,'#-----------------------------------------------------------'
+        write(ifoutput,'(I4,F10.2,F7.1,5E13.5)') &
+          (k          , &
+          zf    (k)      , &
+          presf    (k)/100.    , &
+          Npmn    (k,iauto)    , &
+          Npmn    (k,iaccr)    , &
+          Npmn    (k,ised)    , &
+          Npmn    (k,ievap)    , &
+          sum(Npmn  (k,2:nrfields))    , &
+          k=1,kmax)
+        close(ifoutput)
 
-    open (ifoutput,file='qlptend.'//cexpnr,position='append')
-    write(ifoutput,'(//2A,/A,F5.0,A,I4,A,I2,A,I2,A)')         &
-      '#-------------------------------------------------------------'   &
-      ,'---------------------------------)'           &
-      ,'#',(timeav),'--- AVERAGING TIMESTEP --- '         &
-      ,nhrs,':',nminut,':',nsecs             &
-      ,'   HRS:MIN:SEC AFTER INITIALIZATION '
-    write (ifoutput,'(2A/A/A/2A/A/A)')             &
-      '#------------------------------------------------------------'     &
-      , '------------'               &
-      ,'#               --------   T E N D E N C I E S QRAIN ------    '   &
-      ,'#                                                           '     &
-      ,'# LEV HEIGHT   PRES  |  AUTO         ACCR          SEDIM    '     &
-      ,'     EVAP         TOT '             &
-      ,'#      (M)   (MB)  |  ---------   (KG/KG/S)      ----------'     &
-      ,'#-----------------------------------------------------------'
-    write(ifoutput,'(I4,F10.2,F7.1,5E13.5)') &
-      (k          , &
-      zf    (k)      , &
-      presf    (k)/100.    , &
-      qlpmn    (k,iauto)    , &
-      qlpmn    (k,iaccr)    , &
-      qlpmn    (k,ised)    , &
-      qlpmn    (k,ievap)    , &
-      sum(qlpmn  (k,2:nrfields))    , &
-                        k=1,kmax)
-    close(ifoutput)
+        open (ifoutput,file='qlptend.'//cexpnr,position='append')
+        write(ifoutput,'(//2A,/A,F5.0,A,I4,A,I2,A,I2,A)')         &
+          '#-------------------------------------------------------------'   &
+          ,'---------------------------------)'           &
+          ,'#',(timeav),'--- AVERAGING TIMESTEP --- '         &
+          ,nhrs,':',nminut,':',nsecs             &
+          ,'   HRS:MIN:SEC AFTER INITIALIZATION '
+        write (ifoutput,'(2A/A/A/2A/A/A)')             &
+          '#------------------------------------------------------------'     &
+          , '------------'               &
+          ,'#               --------   T E N D E N C I E S QRAIN ------    '   &
+          ,'#                                                           '     &
+          ,'# LEV HEIGHT   PRES  |  AUTO         ACCR          SEDIM    '     &
+          ,'     EVAP         TOT '             &
+          ,'#      (M)   (MB)  |  ---------   (KG/KG/S)      ----------'     &
+          ,'#-----------------------------------------------------------'
+        write(ifoutput,'(I4,F10.2,F7.1,5E13.5)') &
+          (k          , &
+          zf    (k)      , &
+          presf    (k)/100.    , &
+          qlpmn    (k,iauto)    , &
+          qlpmn    (k,iaccr)    , &
+          qlpmn    (k,ised)    , &
+          qlpmn    (k,ievap)    , &
+          sum(qlpmn  (k,2:nrfields))    , &
+                            k=1,kmax)
+        close(ifoutput)
 
-    open (ifoutput,file='qtptend.'//cexpnr,position='append')
-    write(ifoutput,'(//2A,/A,F5.0,A,I4,A,I2,A,I2,A)')         &
-      '#-------------------------------------------------------------'   &
-      ,'---------------------------------)'           &
-      ,'#',(timeav),'--- AVERAGING TIMESTEP --- '         &
-      ,nhrs,':',nminut,':',nsecs             &
-      ,'   HRS:MIN:SEC AFTER INITIALIZATION '
-    write (ifoutput,'(2A/A/A/2A/A/A)')             &
-      '#------------------------------------------------------------'     &
-      , '------------'               &
-      ,'#               --------   T E N D E N C I E S QTP ------    '   &
-      ,'#                                                           '     &
-      ,'# LEV HEIGHT   PRES  |  AUTO         ACCR          SEDIM    '     &
-      ,'     EVAP         TOT '             &
-      ,'#      (M)   (MB)  |  ---------   (KG/KG/S)      ----------'     &
-      ,'#-----------------------------------------------------------'
-    write(ifoutput,'(I4,F10.2,F7.1,5E13.5)') &
-      (k          , &
-      zf    (k)      , &
-      presf    (k)/100.    , &
-      qtpmn    (k,iauto)    , &
-      qtpmn    (k,iaccr)    , &
-      qtpmn    (k,ised)    , &
-      qtpmn    (k,ievap)    , &
-      sum    (qtpmn(k,2:nrfields))  , &
-      k=1,kmax)
-      close(ifoutput)
+        open (ifoutput,file='qtptend.'//cexpnr,position='append')
+        write(ifoutput,'(//2A,/A,F5.0,A,I4,A,I2,A,I2,A)')         &
+          '#-------------------------------------------------------------'   &
+          ,'---------------------------------)'           &
+          ,'#',(timeav),'--- AVERAGING TIMESTEP --- '         &
+          ,nhrs,':',nminut,':',nsecs             &
+          ,'   HRS:MIN:SEC AFTER INITIALIZATION '
+        write (ifoutput,'(2A/A/A/2A/A/A)')             &
+          '#------------------------------------------------------------'     &
+          , '------------'               &
+          ,'#               --------   T E N D E N C I E S QTP ------    '   &
+          ,'#                                                           '     &
+          ,'# LEV HEIGHT   PRES  |  AUTO         ACCR          SEDIM    '     &
+          ,'     EVAP         TOT '             &
+          ,'#      (M)   (MB)  |  ---------   (KG/KG/S)      ----------'     &
+          ,'#-----------------------------------------------------------'
+        write(ifoutput,'(I4,F10.2,F7.1,5E13.5)') &
+          (k          , &
+          zf    (k)      , &
+          presf    (k)/100.    , &
+          qtpmn    (k,iauto)    , &
+          qtpmn    (k,iaccr)    , &
+          qtpmn    (k,ised)    , &
+          qtpmn    (k,ievap)    , &
+          sum    (qtpmn(k,2:nrfields))  , &
+          k=1,kmax)
+        close(ifoutput)
+      end if !lascii
+
       if (lnetcdf) then
         vars(:, 1) = cloudcountmn
         vars(:, 2) = prec_prcmn  (:)*rhof(:)*rlv
@@ -536,7 +542,6 @@ subroutine initbulkmicrostat
         enddo
         call writestat_nc(ncid_prof,nvar,ncname,vars(1:kmax,:),nrec_prof,kmax)
       end if
-
     end if
 
     cloudcountmn    = 0.0
