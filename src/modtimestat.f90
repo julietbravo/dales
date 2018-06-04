@@ -50,7 +50,9 @@ save
 
   real    :: dtav
   integer(kind=longint) :: idtav,tnext
-  logical :: ltimestat= .false. !<switch for timestatistics (on/off)
+  logical :: ltimestat= .false. !< switch for timestatistics (on/off)
+  logical :: lascii = .true.    !< switch for ascii output
+
   real    :: zi,ziold=-1, we
   integer, parameter :: iblh_flux = 1, iblh_grad = 2, iblh_thres = 3
   integer, parameter :: iblh_thv = -1,iblh_thl = -2, iblh_qt = -3
@@ -94,7 +96,7 @@ contains
 
 
     namelist/NAMTIMESTAT/ & !< namelist
-    dtav,ltimestat,blh_thres,iblh_meth,iblh_var,blh_nsamp !! namelist contents
+    dtav,ltimestat,blh_thres,iblh_meth,iblh_var,blh_nsamp,lascii !! namelist contents
 
     dtav=dtav_glob
     if(myid==0)then
@@ -111,7 +113,8 @@ contains
 
     call MPI_BCAST(dtav       ,1,MY_REAL   ,0,comm3d,mpierr)
     call MPI_BCAST(ltimestat  ,1,MPI_LOGICAL,0,comm3d,mpierr)
-    call MPI_BCAST(blh_thres  ,1,MY_REAL   ,0,comm3d,mpierr)
+    call MPI_BCAST(lascii     ,1,MPI_LOGICAL,0,comm3d,mpierr)
+    call MPI_BCAST(blh_thres  ,1,MY_REAL    ,0,comm3d,mpierr)
     call MPI_BCAST(iblh_meth  ,1,MPI_INTEGER,0,comm3d,mpierr)
     call MPI_BCAST(iblh_var   ,1,MPI_INTEGER,0,comm3d,mpierr)
     call MPI_BCAST(blh_nsamp  ,1,MPI_INTEGER,0,comm3d,mpierr)
@@ -161,32 +164,32 @@ contains
     deallocate(profile)
 
     if(myid==0) then
-      !tmser1
-      open (ifoutput,file='tmser1.'//cexpnr,status='replace',position='append')
-      write(ifoutput,'(2a)') &
-             '#  time      cc     z_cbase    z_ctop_avg  z_ctop_max      zi         we', &
-             '   <<ql>>  <<ql>>_max   w_max   tke     ql_max'
-      close(ifoutput)
-      !tmsurf
-      open (ifoutput,file='tmsurf.'//cexpnr,status='replace',position='append')
-      write(ifoutput,'(2a)') &
-             '#  time        ust        tst        qst         obukh', &
-             '      thls        z0        wthls      wthvs      wqls '
-      close(ifoutput)
-      if(isurf == 1) then
-        open (ifoutput,file='tmlsm.'//cexpnr,status='replace',position='append')
-        write(ifoutput,'(3a)') &
-               '#     time      Qnet        H          LE         G0  ', &
-               '   tendskin     rs         ra        tskin        cliq  ', &
-               '    Wl          rssoil     rsveg       Resp       wco2         An', &
-               '    gcco2'
-        write(ifoutput,'(3a)') &
-               '#      [s]     [W/m2]     [W/m2]     [W/m2]     [W/m2]', &
-               '   [W/m2]      [s/m]       [s/m]     [K]          [-]   ', &
-               '   [m]          [s/m]      [s/m]   [mgCm2/s]               [mgCm2/s]',&
-               '   [m/s]  '
+      if (lascii) then
+        !tmser1
+        open (ifoutput,file='tmser1.'//cexpnr,status='replace',position='append')
+        write(ifoutput,'(2a)') &
+               '#  time      cc     z_cbase    z_ctop_avg  z_ctop_max      zi         we', &
+               '   <<ql>>  <<ql>>_max   w_max   tke     ql_max'
         close(ifoutput)
-      end if
+        !tmsurf
+        open (ifoutput,file='tmsurf.'//cexpnr,status='replace',position='append')
+        write(ifoutput,'(2a)') &
+               '#  time        ust        tst        qst         obukh', &
+               '      thls        z0        wthls      wthvs      wqls '
+        close(ifoutput)
+        if(isurf == 1) then
+          open (ifoutput,file='tmlsm.'//cexpnr,status='replace',position='append')
+          write(ifoutput,'(3a)') &
+                 '#     time      Qnet        H          LE         G0  ', &
+                 '   tendskin     rs         ra        tskin        cliq  ', &
+                 '    Wl          rssoil     rsveg       Resp       wco2         An'
+          write(ifoutput,'(3a)') &
+                 '#      [s]     [W/m2]     [W/m2]     [W/m2]     [W/m2]', &
+                 '   [W/m2]      [s/m]       [s/m]     [K]          [-]   ', &
+                 '   [m]          [s/m]      [s/m]'
+          close(ifoutput)
+        end if
+      end if !lascii
 
       if(lhetero) then
         do i=1,xpatches
@@ -763,37 +766,39 @@ contains
   !     ---------------------------------------
 
     if(myid==0)then
-       !tmser1
-      open (ifoutput,file='tmser1.'//cexpnr,position='append')
-      write( ifoutput,'(f10.2,f6.3,4f12.3,f10.4,5f9.3)') &
-          rtimee, &
-          cc, &
-          zbaseav, &
-          ztopav, &
-          ztopmax, &
-          zi, &
-          we, &
-          qlintav*1000., &
-          qlintmax*1000., &
-          wmax, &
-          tke_tot*dzf(1), &
-          qlmax*1000.
-      close(ifoutput)
+      if (lascii) then
+        !tmser1
+        open (ifoutput,file='tmser1.'//cexpnr,position='append')
+        write( ifoutput,'(f10.2,f6.3,4f12.3,f10.4,5f9.3)') &
+            rtimee, &
+            cc, &
+            zbaseav, &
+            ztopav, &
+            ztopmax, &
+            zi, &
+            we, &
+            qlintav*1000., &
+            qlintmax*1000., &
+            wmax, &
+            tke_tot*dzf(1), &
+            qlmax*1000.
+        close(ifoutput)
 
-      !tmsurf
-      open (ifoutput,file='tmsurf.'//cexpnr,position='append')
-      write( ifoutput,'(f10.2,4e11.3,f11.3,4e11.3)') &
-          rtimee   ,&
-          ust     ,&
-          tst     ,&
-          qst     ,&
-          oblav   ,&
-          thls    ,&
-          z0      ,&
-          wts     ,&
-          wthvs    ,&
-          wqls
-      close(ifoutput)
+        !tmsurf
+        open (ifoutput,file='tmsurf.'//cexpnr,position='append')
+        write( ifoutput,'(f10.2,4e11.3,f11.3,4e11.3)') &
+            rtimee   ,&
+            ust     ,&
+            tst     ,&
+            qst     ,&
+            oblav   ,&
+            thls    ,&
+            z0      ,&
+            wts     ,&
+            wthvs    ,&
+            wqls
+        close(ifoutput)
+      end if !lascii
 
       if (isurf == 1) then
         !tmlsm

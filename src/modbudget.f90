@@ -40,6 +40,7 @@ module modbudget
   integer(kind=longint) :: idtav, itimeav,tnext,tnextwrite
   integer :: nsamples
   logical :: lbudget= .false. ! switch for turbulent TKE budget
+  logical :: lascii = .true. ! switch for ASCRII output
 
   !time averaged fields, resolved TKE
   real, allocatable :: tkemn(:)   !< Resolved TKE
@@ -81,12 +82,11 @@ contains
     use modstat_nc, only : lnetcdf,define_nc,ncinfo,writestat_dims_nc
     use modgenstat, only : idtav_prof=>idtav, itimeav_prof=>itimeav,ncid_prof=>ncid
 
-
     implicit none
 
     integer ierr
     namelist/NAMBUDGET/ &
-         dtav,timeav,lbudget
+         dtav,timeav,lbudget,lascii
 
     dtav=dtav_glob;timeav=timeav_glob
 
@@ -105,6 +105,8 @@ contains
     call MPI_BCAST(timeav     ,1,MY_REAL    ,0,comm3d,mpierr)
     call MPI_BCAST(dtav       ,1,MY_REAL    ,0,comm3d,mpierr)
     call MPI_BCAST(lbudget    ,1,MPI_LOGICAL,0,comm3d,mpierr)
+    call MPI_BCAST(lascii     ,1,MPI_LOGICAL,0,comm3d,mpierr)
+
     idtav = dtav/tres
     itimeav = timeav/tres
 
@@ -130,7 +132,6 @@ contains
     allocate(sbstormn(k1),sbbudgmn(k1),sbresidmn(k1),&
          sbdissmn(k1),ekmmn(k1),khkmmn(k1))
 
-
     !Setting time mean variables to zero
     tkemn=0.;shrmn=0.;buomn=0.;trspmn=0.;dissmn=0.
     ptrspmn=0.;stormn=0.;budgmn=0.;residmn=0.
@@ -143,10 +144,12 @@ contains
 
    !Preparing output files
     if(myid==0)then
-       open (ifoutput,file='budget.'//cexpnr,status='replace')
-       close (ifoutput)
-       open (ifoutput,file='sbbudget.'//cexpnr,status='replace')
-       close (ifoutput)
+      if (lascii) then
+        open (ifoutput,file='budget.'//cexpnr,status='replace')
+        close (ifoutput)
+        open (ifoutput,file='sbbudget.'//cexpnr,status='replace')
+        close (ifoutput)
+      end if ! lascii
     endif
     if (lnetcdf) then
       idtav = idtav_prof
@@ -154,7 +157,7 @@ contains
       tnext      = idtav+btime
       tnextwrite = itimeav+btime
       nsamples = itimeav/idtav
-     if (myid==0) then
+      if (myid==0) then
         call ncinfo(ncname( 1,:),'tker','Resolved TKE','m/s^2','tt')
         call ncinfo(ncname( 2,:),'shr','Resolved Shear','m/s^2','tt')
         call ncinfo(ncname( 3,:),'buo','Resolved Buoyancy','m/s^2','tt')
@@ -174,9 +177,8 @@ contains
         call ncinfo(ncname(17,:),'ekm','Turbulent exchange coefficient momentum','m/s^2','tt')
         call ncinfo(ncname(18,:),'khkm   ','Kh / Km, in post-processing used to determine filter-grid ratio','m/s^2','tt')
         call define_nc( ncid_prof, NVar, ncname)
-     end if
-
-   end if
+      end if
+    end if ! lnetcdf
 
   end subroutine initbudget
 
@@ -665,7 +667,7 @@ contains
   deallocate(subx,suby,subz,subxl,subyl,subzl)
 end subroutine do_genbudget
 
-!> Performs the SFS - budget calculations
+  !> Performs the SFS - budget calculations
   subroutine do_gensbbudget
     use modglobal,  only : i1,j1,ih,jh,k1,ijtot
     use modsubgriddata, only : ekm,ekh,sbdiss,sbshr,sbbuo
@@ -727,30 +729,31 @@ end subroutine do_genbudget
     !----------------------------
     ! 5. Add to time mean
     !----------------------------
-
-  do k=1,k1
-     sbshrmn(k)   = sbshrmn(k)   + rhobf(k)*sbshrav(k)
-     sbbuomn(k)   = sbbuomn(k)   + rhobf(k)*sbbuoav(k)
-     sbdissmn(k)  = sbdissmn(k)  + rhobf(k)*sbdissav(k)
-     sbtkemn(k)   = sbtkemn(k)   + rhobf(k)*sbtkeav(k)
-     ekmmn(k)     = ekmmn(k)     + ekmav(k)
-     khkmmn(k)    = khkmmn(k)    + khkmav(k)
-  enddo
+    do k=1,k1
+       sbshrmn(k)   = sbshrmn(k)   + rhobf(k)*sbshrav(k)
+       sbbuomn(k)   = sbbuomn(k)   + rhobf(k)*sbbuoav(k)
+       sbdissmn(k)  = sbdissmn(k)  + rhobf(k)*sbdissav(k)
+       sbtkemn(k)   = sbtkemn(k)   + rhobf(k)*sbtkeav(k)
+       ekmmn(k)     = ekmmn(k)     + ekmav(k)
+       khkmmn(k)    = khkmmn(k)    + khkmav(k)
+    enddo
 
     !Deallocate
     deallocate(sbshrav,sbbuoav,sbdissav,ekmav,khkmav)
     deallocate(sbtkeavl,khkmavl)
   end subroutine do_gensbbudget
 
-!> Write the budgets to file
+  !> Write the budgets to file
   subroutine writebudget
     use modglobal, only : kmax,k1,zf,rtimee,cexpnr,ifoutput
     use modmpi,    only : myid
     use modstat_nc,only : writestat_nc,lnetcdf
-      use modgenstat, only: ncid_prof=>ncid,nrec_prof=>nrec
+    use modgenstat, only: ncid_prof=>ncid,nrec_prof=>nrec
+
     implicit none
     real,dimension(k1,nvar) :: vars
     integer nsecs, nhrs, nminut,k
+
     nsecs   = nint(rtimee)
     nhrs    = int(nsecs/3600)
     nminut  = int(nsecs/60)-nhrs*60
@@ -778,101 +781,103 @@ end subroutine do_genbudget
     sbbudgmn  = sbshrmn+sbbuomn+sbdissmn
     sbresidmn = sbbudgmn - sbstormn
 
-
     if(myid==0) then
-       open (ifoutput,file='budget.'//cexpnr,position='append')
+      if (lascii) then
+        open (ifoutput,file='budget.'//cexpnr,position='append')
 
-       write(ifoutput,'(//A,/A,F5.0,A,I4,A,I2,A,I2,A)') &
-           '#-------------------------------------------------------------------' &
-            ,'#',(timeav),'--- AVERAGING TIMESTEP --- ' &
-            ,nhrs,':',nminut,':',nsecs &
-            ,'   HRS:MIN:SEC AFTER INITIALIZATION '
-       write (ifoutput,'(A/2A/3A)') &
+        write(ifoutput,'(//A,/A,F5.0,A,I4,A,I2,A,I2,A)') &
             '#-------------------------------------------------------------------' &
-          ,'#LEV HEIGHT   |   TKE        SHEAR      BUOYANCY   ' &
-          ,'  TRANSP     PRES_TRSP     DISS      BUDGET      STORAGE      RESID'&
-          ,'#     (M)    |   ' &
-          ,'(---------------------------------- (M/S)^2  ------------------' &
-          ,'-------)'
+             ,'#',(timeav),'--- AVERAGING TIMESTEP --- ' &
+             ,nhrs,':',nminut,':',nsecs &
+             ,'   HRS:MIN:SEC AFTER INITIALIZATION '
+        write (ifoutput,'(A/2A/3A)') &
+             '#-------------------------------------------------------------------' &
+           ,'#LEV HEIGHT   |   TKE        SHEAR      BUOYANCY   ' &
+           ,'  TRANSP     PRES_TRSP     DISS      BUDGET      STORAGE      RESID'&
+           ,'#     (M)    |   ' &
+           ,'(---------------------------------- (M/S)^2  ------------------' &
+           ,'-------)'
 
 
-       write(ifoutput,'(I3,F9.3,9E12.4)') &
-            (k, &
-            zf      (k), &
-            tkemn  (k), & !!!
-            shrmn   (k), &
-            buomn   (k), &
-            trspmn  (k), &
-            ptrspmn (k), &
-            dissmn  (k), &!!!
-            budgmn  (k), &!!!
-            stormn  (k), &
-            residmn (k), &!!!
-            k=1,kmax)
-       close(ifoutput)
+        write(ifoutput,'(I3,F9.3,9E12.4)') &
+             (k, &
+             zf      (k), &
+             tkemn  (k), & !!!
+             shrmn   (k), &
+             buomn   (k), &
+             trspmn  (k), &
+             ptrspmn (k), &
+             dissmn  (k), &!!!
+             budgmn  (k), &!!!
+             stormn  (k), &
+             residmn (k), &!!!
+             k=1,kmax)
+        close(ifoutput)
 
-       open (ifoutput,file='sbbudget.'//cexpnr,position='append')
+        open (ifoutput,file='sbbudget.'//cexpnr,position='append')
 
-       write(ifoutput,'(//A,/A,F5.0,A,I4,A,I2,A,I2,A)') &
-            '#---------------------------------------------------------------' &
-            ,'#',(timeav),'--- AVERAGING TIMESTEP --- ' &
-            ,nhrs,':',nminut,':',nsecs &
-            ,'   HRS:MIN:SEC AFTER INITIALIZATION '
-       write (ifoutput,'(A/2A/3A)') &
-            '#---------------------------------------------------------------' &
-          ,'#LEV HEIGHT   |   SBTKE     SBSHEAR     BUOYANCY     SBDISS' &
-          ,'     SBSTORAGE    SBBUDGET   SBRESID    EKM          KH/KM '&
-          ,'#       (M)   | ' &
-          ,'(-------------------------------------------------- (M/S)^2 -------------' &
-          ,'-----------------------------------)'
+        write(ifoutput,'(//A,/A,F5.0,A,I4,A,I2,A,I2,A)') &
+             '#---------------------------------------------------------------' &
+             ,'#',(timeav),'--- AVERAGING TIMESTEP --- ' &
+             ,nhrs,':',nminut,':',nsecs &
+             ,'   HRS:MIN:SEC AFTER INITIALIZATION '
+        write (ifoutput,'(A/2A/3A)') &
+             '#---------------------------------------------------------------' &
+           ,'#LEV HEIGHT   |   SBTKE     SBSHEAR     BUOYANCY     SBDISS' &
+           ,'     SBSTORAGE    SBBUDGET   SBRESID    EKM          KH/KM '&
+           ,'#       (M)   | ' &
+           ,'(-------------------------------------------------- (M/S)^2 -------------' &
+           ,'-----------------------------------)'
 
 
-       write(ifoutput,'(I3,F9.3,9E12.4)') &
-            (k, &
-            zf      (k), &
-            sbtkemn  (k), &
-            sbshrmn   (k), &
-            sbbuomn   (k), &
-            sbdissmn  (k), &
-            sbstormn  (k), &
-            sbbudgmn  (k), &
-            sbresidmn (k), &
-            ekmmn     (k), & !!!
-            khkmmn    (k), &
-            k=1,kmax)
-       close(ifoutput)
+        write(ifoutput,'(I3,F9.3,9E12.4)') &
+             (k, &
+             zf      (k), &
+             sbtkemn  (k), &
+             sbshrmn   (k), &
+             sbbuomn   (k), &
+             sbdissmn  (k), &
+             sbstormn  (k), &
+             sbbudgmn  (k), &
+             sbresidmn (k), &
+             ekmmn     (k), & !!!
+             khkmmn    (k), &
+             k=1,kmax)
+        close(ifoutput)
+      endif !lascii
     endif !endif myid==0
-      if (lnetcdf) then
-        vars(:, 1) =tkemn
-        vars(:, 2) =shrmn
-        vars(:, 3) =buomn
-        vars(:, 4) =trspmn
-        vars(:, 5) =ptrspmn
-        vars(:, 6) =dissmn
-        vars(:, 7) =budgmn
-        vars(:, 8) =stormn
-        vars(:, 9) =residmn
-        vars(:,10) =sbtkemn
-        vars(:,11) =sbshrmn
-        vars(:,12) =sbbuomn
-        vars(:,13) =sbdissmn
-        vars(:,14) =sbstormn
-        vars(:,15) =sbbudgmn
-        vars(:,16) =sbresidmn
-        vars(:,17) =ekmmn
-        vars(:,18) =khkmmn
-        call writestat_nc(ncid_prof,nvar,ncname,vars(1:kmax,:),nrec_prof,kmax)
-      end if
-      !Reset time mean variables; resolved TKE
-      tkemn=0.;tkeb=0.;shrmn=0.;buomn=0.;trspmn=0.;ptrspmn=0.;
-      dissmn=0.;stormn=0.;budgmn=0.;residmn=0.
-      ltkeb=.false.
-      !Reset time mean variables; subgrid TKE
-      sbtkemn=0.;sbtkeb=0.;sbshrmn=0.;sbbuomn=0.;sbdissmn=0.;sbtkeb=0.
-      sbstormn=0.;sbbudgmn=0.;sbresidmn=0.;ekmmn=0.;khkmmn=0.;
-      lsbtkeb=.false.
-  end subroutine writebudget
 
+    if (lnetcdf) then
+      vars(:, 1) =tkemn
+      vars(:, 2) =shrmn
+      vars(:, 3) =buomn
+      vars(:, 4) =trspmn
+      vars(:, 5) =ptrspmn
+      vars(:, 6) =dissmn
+      vars(:, 7) =budgmn
+      vars(:, 8) =stormn
+      vars(:, 9) =residmn
+      vars(:,10) =sbtkemn
+      vars(:,11) =sbshrmn
+      vars(:,12) =sbbuomn
+      vars(:,13) =sbdissmn
+      vars(:,14) =sbstormn
+      vars(:,15) =sbbudgmn
+      vars(:,16) =sbresidmn
+      vars(:,17) =ekmmn
+      vars(:,18) =khkmmn
+      call writestat_nc(ncid_prof,nvar,ncname,vars(1:kmax,:),nrec_prof,kmax)
+    end if
+    !Reset time mean variables; resolved TKE
+    tkemn=0.;tkeb=0.;shrmn=0.;buomn=0.;trspmn=0.;ptrspmn=0.;
+    dissmn=0.;stormn=0.;budgmn=0.;residmn=0.
+    ltkeb=.false.
+    !Reset time mean variables; subgrid TKE
+    sbtkemn=0.;sbtkeb=0.;sbshrmn=0.;sbbuomn=0.;sbdissmn=0.;sbtkeb=0.
+    sbstormn=0.;sbbudgmn=0.;sbresidmn=0.;ekmmn=0.;khkmmn=0.;
+    lsbtkeb=.false.
+
+  end subroutine writebudget
 
 !> Cleans up after the run
   subroutine exitbudget

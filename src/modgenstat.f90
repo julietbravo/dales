@@ -65,6 +65,8 @@ module modgenstat
     !    timeav         INTERVAL OF WRITING                           |
     !                                                                 |
     !    lstat      SWITCH TO ENABLE TIMESERIES                       |
+    !                                                                 |
+    !    lascii      SWITCH TO ENABLE ASCRII output                   |
     !-----------------------------------------------------------------|
   use modglobal, only : longint
 
@@ -73,7 +75,7 @@ implicit none
 PUBLIC :: initgenstat, genstat, exitgenstat
 save
 
-!NetCDF variables
+! NetCDF variables
   integer :: nvar = 39
   integer :: ncid,nrec = 0
   character(80) :: fname = 'profiles.xxx.nc'
@@ -83,14 +85,16 @@ save
   real    :: dtav, timeav
   integer(kind=longint) :: idtav,itimeav,tnext,tnextwrite
   logical :: lstat= .false. ! switch for conditional sampling cloud (on/off)
+  logical :: lascii=.true.  ! switch for outputing statistics in ASCII (on/off)
   integer :: nsamples
+
 !     ----  total fields  ---
 
   real, allocatable  :: umn   (:)       ,vmn   (:)
   real, allocatable  :: thlmn (:)       ,thvmn (:)
   real, allocatable  :: qtmn  (:)       ,qlmn  (:),  qlhmn(:),cfracmn(:)
 
-! real, allocatable  ::     --- fluxes (resolved, subgrid and total) ---
+!     --- fluxes (resolved, subgrid and total) ---
   real, allocatable  :: wthlsmn (:),wthlrmn (:),wthltmn(:)
   real, allocatable  :: wthvsmn (:),wthvrmn (:),wthvtmn(:)
   real, allocatable  :: wqlsmn (:),wqlrmn (:),wqltmn(:)
@@ -177,9 +181,10 @@ contains
     character(40) :: name
     character(3) :: csvname
     namelist/NAMGENSTAT/ &
-    dtav,timeav,lstat
+    dtav,timeav,lstat,lascii
 
-    dtav=dtav_glob;timeav=timeav_glob
+    dtav=dtav_glob
+    timeav=timeav_glob
 
     if(myid==0)then
       open(ifnamopt,file=fname_options,status='old',iostat=ierr)
@@ -193,9 +198,11 @@ contains
       close(ifnamopt)
     end if
 
-    call MPI_BCAST(timeav     ,1,MY_REAL   ,0,comm3d,mpierr)
-    call MPI_BCAST(dtav       ,1,MY_REAL   ,0,comm3d,mpierr)
-    call MPI_BCAST(lstat   ,1,MPI_LOGICAL,0,comm3d,mpierr)
+    call MPI_BCAST(timeav, 1, MY_REAL,     0, comm3d, mpierr)
+    call MPI_BCAST(dtav,   1, MY_REAL,     0, comm3d, mpierr)
+    call MPI_BCAST(lstat,  1, MPI_LOGICAL, 0, comm3d, mpierr)
+    call MPI_BCAST(lascii, 1, MPI_LOGICAL, 0, comm3d, mpierr)
+
     idtav = dtav/tres
     itimeav = timeav/tres
 
@@ -271,76 +278,77 @@ contains
     allocate(qlmnlast(k1))
     allocate(wthvtmnlast(k1))
 
-      umn      = 0.
-      vmn      = 0.
-      thlmn    = 0.
-      thvmn    = 0.
-      qtmn     = 0.
-      qlmn     = 0.
-      qlhmn    = 0.
-      cfracmn  = 0.
+    umn     = 0.
+    vmn     = 0.
+    thlmn   = 0.
+    thvmn   = 0.
+    qtmn    = 0.
+    qlmn    = 0.
+    qlhmn   = 0.
+    cfracmn = 0.
 
-      wthlsmn =  0.
-      wthlrmn =  0.
-      wthltmn =  0.
+    wthlsmn =  0.
+    wthlrmn =  0.
+    wthltmn =  0.
 
-      wthvsmn =  0.
-      wthvrmn =  0.
-      wthvtmn =  0.
+    wthvsmn =  0.
+    wthvrmn =  0.
+    wthvtmn =  0.
 
-      wqtsmn =  0.
-      wqtrmn =  0.
-      wqttmn =  0.
+    wqtsmn  =  0.
+    wqtrmn  =  0.
+    wqttmn  =  0.
 
-      wqlsmn =  0.
-      wqlrmn =  0.
-      wqltmn =  0.
+    wqlsmn  =  0.
+    wqlrmn  =  0.
+    wqltmn  =  0.
 
-      uwtmn  = 0.
-      vwtmn  = 0.
-      uwrmn  = 0.
-      vwrmn  = 0.
-      uwsmn  = 0.
-      vwsmn  = 0.
+    uwtmn   = 0.
+    vwtmn   = 0.
+    uwrmn   = 0.
+    vwrmn   = 0.
+    uwsmn   = 0.
+    vwsmn   = 0.
 
+    u2mn    = 0.
+    v2mn    = 0.
+    w2mn    = 0.
+    w2submn = 0.
+    skewmn  = 0.
+    qt2mn   = 0.
+    thl2mn  = 0.
+    thv2mn  = 0.
+    th2mn   = 0.
+    ql2mn   = 0.
 
-      u2mn     = 0.
-      v2mn     = 0.
-      w2mn     = 0.
-      w2submn  = 0.
-      skewmn   = 0.
-      qt2mn    = 0.
-      thl2mn   = 0.
-      thv2mn   = 0.
-      th2mn    = 0.
-      ql2mn    = 0.
-!       qs2mn    = 0.
-!       qsmn     = 0.
-!       rhmn     = 0.
-!       rmn      = 0.
-!       r2mn     = 0.
-!       r3mn     = 0.
+!   qs2mn    = 0.
+!   qsmn     = 0.
+!   rhmn     = 0.
+!   rmn      = 0.
+!   r2mn     = 0.
+!   r3mn     = 0.
 
-      svmmn   = 0.
-      svpmn   = 0.
-      svpav   = 0.
-!       svplsmn = 0.
-      svptmn  = 0.
-      svptav  = 0.
+    svmmn   = 0.
+    svpmn   = 0.
+    svpav   = 0.
+!   svplsmn = 0.
+    svptmn  = 0.
+    svptav  = 0.
 
-      sv2mn = 0.
+    sv2mn = 0.
 
-      wsvsmn = 0.
-      wsvrmn = 0.
-      wsvtmn = 0.
+    wsvsmn = 0.
+    wsvrmn = 0.
+    wsvtmn = 0.
 
-      cszav = 0.
-      cszmn = 0.
+    cszav = 0.
+    cszmn = 0.
 
-      qlmnlast = 0.
-      wthvtmnlast = 0.
+    qlmnlast = 0.
+    wthvtmnlast = 0.
 
-      if(myid==0)then
+    if(myid==0)then
+      if (lascii) then
         open (ifoutput,file='field.'//cexpnr,status='replace')
         close (ifoutput)
         open (ifoutput,file='flux1.'//cexpnr,status='replace')
@@ -350,17 +358,18 @@ contains
         open (ifoutput,file='moments.'//cexpnr,status='replace')
         close (ifoutput)
         do n=1,nsv
-            name = 'svnnnfld.'//cexpnr
-            write (name(3:5),'(i3.3)') n
-            open (ifoutput,file=name,status='replace')
-            close (ifoutput)
+          name = 'svnnnfld.'//cexpnr
+          write (name(3:5),'(i3.3)') n
+          open (ifoutput,file=name,status='replace')
+          close (ifoutput)
         end do
         do n=1,nsv
-            name = 'svnnnflx.'//cexpnr
-            write (name(3:5),'(i3.3)') n
-            open (ifoutput,file=name,status='replace')
-            close (ifoutput)
+          name = 'svnnnflx.'//cexpnr
+          write (name(3:5),'(i3.3)') n
+          open (ifoutput,file=name,status='replace')
+          close (ifoutput)
         end do
+      end if ! lascii
       if (lnetcdf) then
         fname(10:12) = cexpnr
         nvar = nvar + 7*nsv
@@ -418,9 +427,9 @@ contains
         end do
 
         if (isurf==1) then
-          call open_nc(fname,  ncid,nrec,n3=kmax,ns=ksoilmax)
+          call open_nc(fname, ncid,nrec,n3=kmax,ns=ksoilmax)
         else
-          call open_nc(fname,  ncid,nrec,n3=kmax)
+          call open_nc(fname, ncid,nrec,n3=kmax)
         endif
         if (nrec == 0) then
           call define_nc( ncid, 1, tncname)
@@ -428,9 +437,7 @@ contains
         end if
         call define_nc( ncid, NVar, ncname)
       end if
-
-
-      end if
+    end if
 
   end subroutine initgenstat
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -454,6 +461,7 @@ contains
       call writestat
     end if
     dt_lim = minval((/dt_lim,tnext-timee,tnextwrite-timee/))
+
   end subroutine genstat
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   subroutine do_genstat
@@ -466,8 +474,6 @@ contains
                           ijtot,cu,cv,iadv_sv,iadv_kappa,eps1,dxi,dyi
     use modmpi,    only : comm3d,my_real,mpi_sum,mpierr,slabsum
     implicit none
-
-
 
     real cthl,cqt,den
 
@@ -548,7 +554,6 @@ contains
         ql2avl   (k1), &
         sv2avl   (k1,nsv))
 
-
     allocate( wqlsubl    (k1))
     allocate( wqlresl    (k1))
 
@@ -562,7 +567,6 @@ contains
     allocate( wthvresl    (k1))
 
     allocate( cfracavl(k1))  ! slab averaged cloud fraction
-
 
     allocate( qlptavl(k1))   ! slab averaged turbulence tendency of q_liq
     allocate( uwsubl(k1))
@@ -585,74 +589,71 @@ contains
     allocate(thvmav(k1))
     allocate(sv0h(2-ih:i1+ih,2-jh:j1+jh,k1))
 
+    !-----------------------------------------------------------------------
+    !     1.    INITIALISE LOCAL CONSTANTS
+    !     --    --------------------------
+
+    !     --------------------------------------------------------
+    !     3.0    RESET ARRAYS FOR SLAB AVERAGES
+    !     ---    ------------------------------
+    !     --------------------------------------------------------
+    qlhavl   = 0.0
+    cfracavl = 0.0
 
 
-  !-----------------------------------------------------------------------
-  !     1.    INITIALISE LOCAL CONSTANTS
-  !     --    --------------------------
+    qlptavl  = 0.0
 
-  !     --------------------------------------------------------
-  !     3.0    RESET ARRAYS FOR SLAB AVERAGES
-  !     ---    ------------------------------
-  !     --------------------------------------------------------
-    qlhavl      = 0.0
-    cfracavl    = 0.0
+    wqlsubl  = 0.0
+    wqlresl  = 0.0
+    wqltot   = 0.0
 
+    wthlsubl = 0.0
+    wthlresl = 0.0
+    wthltot  = 0.0
 
-    qlptavl     = 0.0
+    wqtsubl  = 0.0
+    wqtresl  = 0.0
+    wqttot   = 0.0
 
-    wqlsubl     = 0.0
-    wqlresl     = 0.0
-    wqltot      = 0.0
+    wthvsubl = 0.0
+    wthvresl = 0.0
+    wthvtot  = 0.0
 
-    wthlsubl     = 0.0
-    wthlresl     = 0.0
-    wthltot      = 0.0
+    wsvsubl  = 0.
+    wsvresl  = 0.
+    sv2avl   = 0.
 
-    wqtsubl     = 0.0
-    wqtresl     = 0.0
-    wqttot      = 0.0
+    uwresl   = 0.
+    vwresl   = 0.
+    uwtot    = 0.
+    uwsubl   = 0.
+    vwsubl   = 0.
+    vwtot    = 0.
 
-    wthvsubl     = 0.0
-    wthvresl     = 0.0
-    wthvtot      = 0.0
+    u2avl    = 0.0
+    v2avl    = 0.0
+    w2avl    = 0.0
+    w3avl    = 0.0
+    w2subavl = 0.0
+    qt2avl   = 0.0
+    thl2avl  = 0.0
+    thv2avl  = 0.0
+    th2avl   = 0.0
+    ql2avl   = 0.0
+    thvmav   = 0.0
 
+    sv2av    = 0.0
 
-    wsvsubl = 0.
-    wsvresl = 0.
-    sv2avl  = 0.
+    umav     = 0.0
+    vmav     = 0.0
+    thlmav   = 0.0
+    thmav    = 0.0
+    qtmav    = 0.0
+    qlmav    = 0.0
+    cfracav  = 0.0
+    svmav    = 0.
 
-    uwresl  = 0.
-    vwresl  = 0.
-    uwtot   = 0.
-    uwsubl  = 0.
-    vwsubl  = 0.
-    vwtot   = 0.
-
-    u2avl     = 0.0
-    v2avl     = 0.0
-    w2avl     = 0.0
-    w3avl     = 0.0
-    w2subavl  = 0.0
-    qt2avl    = 0.0
-    thl2avl   = 0.0
-    thv2avl   = 0.0
-    th2avl    = 0.0
-    ql2avl    = 0.0
-    thvmav    = 0.0
-
-    sv2av   = 0.0
-
-    umav = 0.0
-    vmav = 0.0
-    thlmav = 0.0
-    thmav  = 0.0
-    qtmav  = 0.0
-    qlmav  = 0.0
-    cfracav= 0.0
-    svmav = 0.
-
-    cszav = 0.
+    cszav    = 0.
 
     do  k=1,k1
       do  j=2,j1
@@ -676,27 +677,26 @@ contains
     call slabsum(qlmav ,1,k1,ql0 ,2-ih,i1+ih,2-jh,j1+jh,1,k1,2,i1,2,j1,1,k1)
     call slabsum(thvmav,1,k1,thv0,2-ih,i1+ih,2-jh,j1+jh,1,k1,2,i1,2,j1,1,k1)
 
-    umav  = umav  /ijtot + cu
-    vmav  = vmav  /ijtot + cv
-    thlmav = thlmav/ijtot
-    qtmav = qtmav /ijtot
-    qlmav = qlmav /ijtot
+    umav    = umav  /ijtot + cu
+    vmav    = vmav  /ijtot + cv
+    thlmav  = thlmav/ijtot
+    qtmav   = qtmav /ijtot
+    qlmav   = qlmav /ijtot
     cfracav = cfracav / ijtot
-    thmav  = thlmav + (rlv/cp)*qlmav/exnf
-    thvmav = thvmav/ijtot
-
-    cszav  = csz
-  !
+    thmav   = thlmav + (rlv/cp)*qlmav/exnf
+    thvmav  = thvmav/ijtot
+    cszav   = csz
 
     do n=1,nsv
       call slabsum(svmav(1,n),1,k1,svm(1,1,1,n),2-ih,i1+ih,2-jh,j1+jh,1,k1,2,i1,2,j1,1,k1)
     enddo
     svmav = svmav/ijtot
-  !------------------------------------------------------------------
-  !     4     CALCULATE SLAB AVERAGED OF FLUXES AND SEVERAL MOMENTS
-  !     -------------------------------------------------------------
-!         4.1 special treatment for lowest level
-  !     -------------------------------------------------
+
+    !------------------------------------------------------------------
+    !     4     CALCULATE SLAB AVERAGED OF FLUXES AND SEVERAL MOMENTS
+    !     -------------------------------------------------------------
+    !         4.1 special treatment for lowest level
+    !     -------------------------------------------------
 
     qls   = 0.0 ! hj: no liquid water at the surface
     tsurf = thls*exnh(1)+(rlv/cp)*qls
@@ -740,7 +740,6 @@ contains
       vwsubl(1) = vwsubl(1) - ( 0.5*( ustar(i,j)+ustar(i,j-1) ) )**2  * &
                 vpcv/sqrt(vpcv**2  + &
           ((um(i,j,1)+um(i+1,j,1)+um(i,j-1,1)+um(i+1,j-1,1))/4.+cu)**2)
-
 
       !Higher order moments
       u2avl    (1) = u2avl    (1) + (um (i,j,1)+cu - umav(1))**2
@@ -814,15 +813,15 @@ contains
     !     -----------------------------------------------------------
 
         ekhalf  = (ekh(i,j,k)*dzf(km)+ekh(i,j,km)*dzf(k))/(2*dzh(k))
-        euhalf = ( dzf(km) * ( ekm(i,j,k)  + ekm(i-1,j,k)  )  + &
+        euhalf  = ( dzf(km) * ( ekm(i,j,k)  + ekm(i-1,j,k)  )  + &
                       dzf(k)  * ( ekm(i,j,km) + ekm(i-1,j,km) ) ) / &
                     ( 4.   * dzh(k) )
-        evhalf = ( dzf(km) * ( ekm(i,j,k)  + ekm(i,j-1,k)  )  + &
+        evhalf  = ( dzf(km) * ( ekm(i,j,k)  + ekm(i,j-1,k)  )  + &
                       dzf(k)  * ( ekm(i,j,km) + ekm(i,j-1,km) ) ) / &
                     ( 4.   * dzh(k) )
 
-        wthls    = -ekhalf*(thl0(i,j,k)-thl0(i,j,km))/dzh(k)
-        wthlr    = w0(i,j,k)*thl0h(i,j,k)
+        wthls   = -ekhalf*(thl0(i,j,k)-thl0(i,j,km))/dzh(k)
+        wthlr   = w0(i,j,k)*thl0h(i,j,k)
 
         wqts    = -ekhalf*(qt0(i,j,k)-qt0(i,j,km))/dzh(k)
         wqtr    = w0(i,j,k)*qt0h(i,j,k)
@@ -830,8 +829,8 @@ contains
         wqls    = cthl*wthls+ cqt*wqts
         wqlr    = w0(i,j,k)*ql0h(i,j,k)
 
-        wthvs    = c1*wthls + c2*thl0h(i,j,k)*wqts
-        wthvr    = w0(i,j,k)*thv0h(i,j,k)
+        wthvs   = c1*wthls + c2*thl0h(i,j,k)*wqts
+        wthvr   = w0(i,j,k)*thv0h(i,j,k)
 
         uwr     = (w0(i,j,k)+w0(i-1,j,k)) &
                   *((u0(i,j,k-1)+cu)*dzf(k)+(u0(i,j,k)+cu)*dzf(k-1))/(4*dzh(k))
@@ -862,9 +861,10 @@ contains
         vwresl(k) = vwresl(k) + vwr
         uwsubl(k) = uwsubl(k) + uws
         vwsubl(k) = vwsubl(k) + vws
-    !     -----------------------------------------------------------
-    !     calculate various moments
-    !     -----------------------------------------------------------
+
+      !     -----------------------------------------------------------
+      !     calculate various moments
+      !     -----------------------------------------------------------
 
         u2avl    (k) = u2avl    (k) + (um (i,j,k)+cu - umav(k))**2
         v2avl    (k) = v2avl    (k) + (vm (i,j,k)+cv - vmav(k))**2
@@ -910,8 +910,8 @@ contains
         enddo
         enddo
         sv0h(2:i1,2:j1,1) = svs(n)
-
       end if
+
       do  k=2,kmax
       do  j=2,j1
       do  i=2,i1
@@ -1027,42 +1027,41 @@ contains
       wqlsub  = wqlsub /ijtot
       wqlres  = wqlres /ijtot
 
-      wthlsub  = wthlsub /ijtot
-      wthlres  = wthlres /ijtot
+      wthlsub = wthlsub /ijtot
+      wthlres = wthlres /ijtot
 
       wqtsub  = wqtsub /ijtot
       wqtres  = wqtres /ijtot
 
-      wthvsub  = wthvsub /ijtot
-      wthvres  = wthvres /ijtot
+      wthvsub = wthvsub /ijtot
+      wthvres = wthvres /ijtot
 
       wqttot  = wqtres + wqtsub
       wqltot  = wqlres + wqlsub
-      wthltot  = wthlres + wthlsub
-      wthvtot  = wthvres + wthvsub
+      wthltot = wthlres + wthlsub
+      wthvtot = wthvres + wthvsub
 
+      wsvsub  = wsvsub /ijtot
+      wsvres  = wsvres /ijtot
+      wsvtot  = wsvsub + wsvres
 
-        wsvsub = wsvsub /ijtot
-        wsvres = wsvres /ijtot
-        wsvtot = wsvsub + wsvres
+      uwres   = uwres    /ijtot
+      vwres   = vwres    /ijtot
+      uwsub   = uwsub    /ijtot
+      vwsub   = vwsub    /ijtot
+      uwtot   = uwres + uwsub
+      vwtot   = vwres + vwsub
 
-      uwres    = uwres    /ijtot
-      vwres    = vwres    /ijtot
-      uwsub    = uwsub    /ijtot
-      vwsub    = vwsub    /ijtot
-      uwtot    = uwres + uwsub
-      vwtot    = vwres + vwsub
-
-      u2av     = u2av     /ijtot
-      v2av     = v2av     /ijtot
-      w2av     = w2av     /ijtot
-      w3av     = w3av     /ijtot
-      w2subav  = w2subav  /ijtot
-      qt2av    = qt2av    /ijtot
-      thl2av   = thl2av   /ijtot
-      thv2av   = thv2av   /ijtot
-      th2av    = th2av    /ijtot
-      ql2av    = ql2av    /ijtot
+      u2av    = u2av     /ijtot
+      v2av    = v2av     /ijtot
+      w2av    = w2av     /ijtot
+      w3av    = w3av     /ijtot
+      w2subav = w2subav  /ijtot
+      qt2av   = qt2av    /ijtot
+      thl2av  = thl2av   /ijtot
+      thv2av  = thv2av   /ijtot
+      th2av   = th2av    /ijtot
+      ql2av   = ql2av    /ijtot
 !       qs2av    = qs2av    /ijtot
 !       qsav     = qsav     /ijtot
 !       qs2av    = qs2av    - qsav**2
@@ -1078,14 +1077,14 @@ contains
 
   !     4.0   ADD SLAB AVERAGES TO TIME MEAN
   !           ------------------------------
-      umn    = umn   + umav
-      vmn    = vmn   + vmav
-      thvmn  = thvmn + thvmav
-      thlmn  = thlmn + thlmav
-      qtmn   = qtmn  + qtmav
-      qlmn   = qlmn  + qlmav
-      cfracmn= cfracmn+cfracav
-      qlhmn  = qlhmn + qlhav
+      umn     = umn   + umav
+      vmn     = vmn   + vmav
+      thvmn   = thvmn + thvmav
+      thlmn   = thlmn + thlmav
+      qtmn    = qtmn  + qtmav
+      qlmn    = qlmn  + qlmav
+      cfracmn = cfracmn+cfracav
+      qlhmn   = qlhmn + qlhav
 
       wthlsmn = wthlsmn + wthlsub
       wthlrmn = wthlrmn + wthlres
@@ -1093,26 +1092,26 @@ contains
       wthvsmn = wthvsmn + wthvsub
       wthvrmn = wthvrmn + wthvres
       wthvtmn = wthvtmn + wthvtot
-      wqtsmn = wqtsmn + wqtsub
-      wqtrmn = wqtrmn + wqtres
-      wqttmn = wqttmn + wqttot
-      wqlsmn = wqlsmn + wqlsub
-      wqlrmn = wqlrmn + wqlres
-      wqltmn = wqltmn + wqltot
-      uwtmn  = uwtmn + uwtot
-      vwtmn  = vwtmn + vwtot
-      uwrmn  = uwrmn + uwres
-      vwrmn  = vwrmn + vwres
-      uwsmn  = uwsmn + uwsub
-      vwsmn  = vwsmn + vwsub
-      u2mn     = u2mn     + u2av
-      v2mn     = v2mn     + v2av
-      w2mn     = w2mn     + w2av
-      w2submn  = w2submn  + w2subav
-      qt2mn    = qt2mn    + qt2av
-      thl2mn   = thl2mn   + thl2av
-      thv2mn   = thv2mn   + thv2av
-      th2mn    = th2mn    + th2av
+      wqtsmn  = wqtsmn + wqtsub
+      wqtrmn  = wqtrmn + wqtres
+      wqttmn  = wqttmn + wqttot
+      wqlsmn  = wqlsmn + wqlsub
+      wqlrmn  = wqlrmn + wqlres
+      wqltmn  = wqltmn + wqltot
+      uwtmn   = uwtmn + uwtot
+      vwtmn   = vwtmn + vwtot
+      uwrmn   = uwrmn + uwres
+      vwrmn   = vwrmn + vwres
+      uwsmn   = uwsmn + uwsub
+      vwsmn   = vwsmn + vwsub
+      u2mn    = u2mn     + u2av
+      v2mn    = v2mn     + v2av
+      w2mn    = w2mn     + w2av
+      w2submn = w2submn  + w2subav
+      qt2mn   = qt2mn    + qt2av
+      thl2mn  = thl2mn   + thl2av
+      thv2mn  = thv2mn   + thv2av
+      th2mn   = th2mn    + th2av
 !       ql2mn    = ql2mn    + ql2av
 !       qs2mn    = qs2mn    + qs2av
 !       qsmn     = qsmn     + qsav
@@ -1121,10 +1120,10 @@ contains
 !       r2mn     = r2mn     + r2av
 !       r3mn     = r3mn     + r3av
 
-        svmmn   = svmmn  + svmav
-        svpmn   = svpmn  + svpav
+        svmmn  = svmmn  + svmav
+        svpmn  = svpmn  + svpav
 !         svplsmn = svplsmn+ svplsav
-        svptmn  = svptmn + svptav
+        svptmn = svptmn + svptav
 
         sv2mn  = sv2mn + sv2av
 
@@ -1152,7 +1151,6 @@ contains
         ql2avl   , &
         sv2avl   )
 
-
     deallocate( wqlsubl    )
     deallocate( wqlresl    )
 
@@ -1166,7 +1164,6 @@ contains
     deallocate( wthvresl    )
 
     deallocate( cfracavl )
-
 
     deallocate( qlptavl)   ! slab averaged turbulence tendency of q_liq
     deallocate( uwsubl)
@@ -1264,24 +1261,22 @@ contains
 !       qsmn     = qsmn   /nsamples
 
 
-        svmmn   = svmmn  /nsamples
-        svpmn   = svpmn  /nsamples
-!         svplsmn = svplsmn/nsamples
-        svptmn  = svptmn /nsamples
+      svmmn   = svmmn  /nsamples
+      svpmn   = svpmn  /nsamples
+!       svplsmn = svplsmn/nsamples
+      svptmn  = svptmn /nsamples
 
-        sv2mn = sv2mn/nsamples
+      sv2mn = sv2mn/nsamples
 
-        wsvsmn = wsvsmn/nsamples
-        wsvrmn = wsvrmn/nsamples
-        wsvtmn = wsvtmn/nsamples
+      wsvsmn = wsvsmn/nsamples
+      wsvrmn = wsvrmn/nsamples
+      wsvtmn = wsvtmn/nsamples
 
-        cszmn = cszmn / nsamples
-
+      cszmn = cszmn / nsamples
 
   !     ------------------------------------------
   !     2.0  Construct other time averaged fields
   !     ------------------------------------------
-
 
       thmn = thlmn + (rlv/cp)*qlmn/exnf
       tmn  = thmn*exnf
@@ -1291,232 +1286,234 @@ contains
   !           ----------------
 
     if(myid==0)then
-      open (ifoutput,file='field.'//cexpnr,position='append')
-      write(ifoutput,'(//A,/A,F5.0,A,I4,A,I2,A,I2,A)') &
-      '#--------------------------------------------------------'      &
-      ,'#',(timeav),'--- AVERAGING TIMESTEP --- '      &
-      ,nhrs,':',nminut,':',nsecs      &
-      ,'   HRS:MIN:SEC AFTER INITIALIZATION '
-      write (ifoutput,'(A/2A/2A)') &
-          '#--------------------------------------------------------' &
-          ,'#LEV  HGHT    PRES    TEMP       TH_L     THETA      TH_V     ' &
-          ,'  QT_AV      QL_AV      U       V   CLOUD FRACTION  CS' &
-          ,'#      (M)    (MB)   (----------- (KELVIN) ---------------)    ' &
-          ,'(----(G/KG)------)  (--- (M/S ---)   (-----------)  (---)'
-      do k=1,kmax
-        write(ifoutput,'(I3,F10.2,F7.1,5F10.4,F12.5,3F11.4,F11.5)') &
-            k, &
-            zf    (k), &
-            presf (k)/100., &
-            tmn   (k), &
-            thlmn (k), &
-            thmn  (k), &
-            thvmn (k), &
-            qtmn  (k)*1000., &
-            qlmn  (k)*1000., &
-            umn   (k), &
-            vmn   (k), &
-            cfracmn(k), &
-            cszmn(k)
-      end do
-      close (ifoutput)
 
-  !     -------------------------
-  !     6.5   write the fluxes
-  !     -----------------------------------------------------------------------
+      if (lascii) then
 
-      open (ifoutput,file='flux1.'//cexpnr,position='append')
-
-      write(ifoutput,'(//2A,/A,F5.0,A,I4,A,I2,A,I2,A)') &
-            '#-------------------------------------------------------------' &
-          ,'---------------------------------)' &
-            ,'#',(timeav),'--- AVERAGING TIMESTEP --- ' &
-            ,nhrs,':',nminut,':',nsecs &
-            ,'   HRS:MIN:SEC AFTER INITIALIZATION '
-      write (ifoutput,'(2A/A/2A/2A/2A/2A)') &
-            '#---------------------------------------------------------------' &
-          ,'---------------------------------)' &
-          ,'#                                                               ' &
-          ,'#                  |                                  TURBULENT ' &
-          ,'FLUXES                           |                             ' &
-          ,'#LEV HEIGHT  PRES  |   WTHL_SUB    WTHL_RES    WTHL_TOT        WQ' &
-          ,'T_SUB      WQT_RES     WQT_TOT   ' &
-          ,'#     (M)    (MB) | (----------   (K M/S)   --------------)     ' &
-          ,'(---------- (M/S)   -------------)                             ' &
-          ,'#---------------------------------------------------------------' &
-          ,'---------------------------------)'
-
-      write(ifoutput,'(I3,F10.2,F7.1,6E13.5)') &
-            (k, &
-            zh       (k), &
-            presh     (k)/100., &
-            wthlsmn   (k)                              , &
-            wthlrmn   (k)                              , &
-            wthltmn   (k)                              , &
-            wqtsmn   (k)                              , &
-            wqtrmn   (k)                              , &
-            wqttmn   (k),&
-             k=1,kmax)
-
-
-
-      close(ifoutput)
-
-      open (ifoutput,file='flux2.'//cexpnr,position='append')
-
-      write(ifoutput,'(//A,/A,F5.0,A,I4,A,I2,A,I2,A)') &
-            '#--------------------------------------------------------' &
-            ,'#',(timeav),'--- AVERAGING TIMESTEP --- ' &
-            ,nhrs,':',nminut,':',nsecs &
-            ,'   HRS:MIN:SEC AFTER INITIALIZATION '
-      write (ifoutput,'(A/A/A/3A/4A/2A)') &
-            '#(------------------------------------------------------------)' &
-          ,'#                                                             ' &
-          ,'#                                     TURBULENT FLUXES        ' &
-          ,'#LEV HEIGHT  PRES  |    UW_TOT      VW_TOT       UW_SGS   ' &
-          ,'   VW_SGS       UW_RES       VW_RES ' &
-          ,'      WTH_TOT       WQ_L       WTHV_SUB     WTHV_RES     WTHV_TOT' &
-          ,'#     (M)    (MB) |   ' &
-          ,'(---------------------------- (M/S)^2  ---------------------------------)' &
-          ,'   (-(K M/S)-)   (-(' &
-          ,'M/S)-)     (----------  (K M/S)  -----------)' &
-          ,'#(------------------------------------------------------------' &
-          ,'-----------------------------------------)'
-
-      write(ifoutput,'(I3,F10.2,F7.1,11E13.5)') &
-          (k, &
-            zh       (k), &
-            presh     (k)/100., &
-            uwtmn    (k)                              , &
-            vwtmn    (k)                              , &
-            uwsmn    (k)                              , &
-            vwsmn    (k)                              , &
-            uwrmn    (k)                              , &
-            vwrmn    (k)                              , &
-            wthltmn   (k) + wqltmn(k)*(rlv/cp)/exnh(k) , &
-            wqltmn   (k)                              , &
-            wthvsmn   (k)                              , &
-            wthvrmn   (k)                              , &
-            wthvtmn   (k)                              , &
-            k=1,kmax)
-
-
-      close(ifoutput)
-
-      open (ifoutput,file='moments.'//cexpnr,position='append')
-
-      write(ifoutput,'(//A,/A,F5.0,A,I4,A,I2,A,I2,A)') &
+        open (ifoutput,file='field.'//cexpnr,position='append')
+        write(ifoutput,'(//A,/A,F5.0,A,I4,A,I2,A,I2,A)') &
         '#--------------------------------------------------------'      &
         ,'#',(timeav),'--- AVERAGING TIMESTEP --- '      &
         ,nhrs,':',nminut,':',nsecs      &
         ,'   HRS:MIN:SEC AFTER INITIALIZATION '
+        write (ifoutput,'(A/2A/2A)') &
+            '#--------------------------------------------------------' &
+            ,'#LEV  HGHT    PRES    TEMP       TH_L     THETA      TH_V     ' &
+            ,'  QT_AV      QL_AV      U       V   CLOUD FRACTION  CS' &
+            ,'#      (M)    (MB)   (----------- (KELVIN) ---------------)    ' &
+            ,'(----(G/KG)------)  (--- (M/S ---)   (-----------)  (---)'
+        do k=1,kmax
+          write(ifoutput,'(I3,F10.2,F7.1,5F10.4,F12.5,3F11.4,F11.5)') &
+              k, &
+              zf    (k), &
+              presf (k)/100., &
+              tmn   (k), &
+              thlmn (k), &
+              thmn  (k), &
+              thvmn (k), &
+              qtmn  (k)*1000., &
+              qlmn  (k)*1000., &
+              umn   (k), &
+              vmn   (k), &
+              cfracmn(k), &
+              cszmn(k)
+        end do
+        close (ifoutput)
 
-      write (ifoutput,'(3A/3A/3A)') &
-            '#----------------------------------------------------' &
-            ,'---------------------------------------------------' &
-            ,'------------------------------' &
-            ,'#  LEV   HGHT   PRES     THL**2       THV**2         ' &
-            ,'TH**2       QT**2       U*U    ' &
-            ,'  V*V     HGHT     W*W     SKEWW     SFS-TKE' &
-            ,'#        (M)   (MB)     (--------------(K*K)--------' &
-            ,'------)     (G/KG)^2     (-(M/S)' &
-            ,'^2)-)      (M)     (M/S)^2  ()        (M/S)^2'
+  !       -------------------------
+  !       6.5   write the fluxes
+  !       -----------------------------------------------------------------------
 
-      write(ifoutput,'(I5,F10.2,F7.1,4E13.5,2F9.4,F10.2,3F9.4)') &
-            (k, &
-            zf    (k), &
-            presf (k)/100., &
-            thl2mn(k), &
-            thv2mn(k), &
-            th2mn (k), &
-            qt2mn (k)*1e6, &
-!             qs2mn (k)*1e6, &
-            u2mn  (k), &
-            v2mn  (k), &
-            zh    (k), &
-            w2mn  (k), &
-            skewmn(k), &
-            w2submn(k), &
-            k=1,kmax)
-
-      close(ifoutput)
-
-
-  !----   Write information about scalar field and its tendencies ------
-
-      do n=1,nsv
-        name = 'svnnnfld.'//cexpnr
-        write (name(3:5),'(i3.3)') n
-        open (ifoutput,file=name,position='append')
+        open (ifoutput,file='flux1.'//cexpnr,position='append')
 
         write(ifoutput,'(//2A,/A,F5.0,A,I4,A,I2,A,I2,A)') &
-            '#-------------------------------------------------------------' &
+              '#-------------------------------------------------------------' &
             ,'---------------------------------)' &
-            ,'#',(timeav),'--- AVERAGING TIMESTEP --- ' &
-            ,nhrs,':',nminut,':',nsecs &
-            ,'   HRS:MIN:SEC AFTER INITIALIZATION '
+              ,'#',(timeav),'--- AVERAGING TIMESTEP --- ' &
+              ,nhrs,':',nminut,':',nsecs &
+              ,'   HRS:MIN:SEC AFTER INITIALIZATION '
+        write (ifoutput,'(2A/A/2A/2A/2A/2A)') &
+              '#---------------------------------------------------------------' &
+            ,'---------------------------------)' &
+            ,'#                                                               ' &
+            ,'#                  |                                  TURBULENT ' &
+            ,'FLUXES                           |                             ' &
+            ,'#LEV HEIGHT  PRES  |   WTHL_SUB    WTHL_RES    WTHL_TOT        WQ' &
+            ,'T_SUB      WQT_RES     WQT_TOT   ' &
+            ,'#     (M)    (MB) | (----------   (K M/S)   --------------)     ' &
+            ,'(---------- (M/S)   -------------)                             ' &
+            ,'#---------------------------------------------------------------' &
+            ,'---------------------------------)'
 
-        write (ifoutput,'(2A/A/A/A,I2.2,A,/A/A/2A)') &
-            '#--------------------------------------------------------- ' &
-            ,'--------------' &
-            ,'#               --FIELD &  T E N D E N C I E S  --------    ' &
-            ,'#                                                           ' &
-            ,'#                  |        SCALAR(' &
-            ,n &
-            ,')                  |' &
-            ,'# LEV HEIGHT  PRES      SV(1)      TURB    TOTAL  |' &
-            ,'#      (M)   (MB)  |       -----  (KG/KG/DAY) ----- |' &
-            ,'#----------------------------------------------------------' &
-            ,'-------------'
-        write(ifoutput,'(I4,2F10.2,E14.5e3,2F10.2,E14.5E3)') &
+        write(ifoutput,'(I3,F10.2,F7.1,6E13.5)') &
+              (k, &
+              zh       (k), &
+              presh     (k)/100., &
+              wthlsmn   (k)                              , &
+              wthlrmn   (k)                              , &
+              wthltmn   (k)                              , &
+              wqtsmn   (k)                              , &
+              wqtrmn   (k)                              , &
+              wqttmn   (k),&
+               k=1,kmax)
+
+        close(ifoutput)
+
+        open (ifoutput,file='flux2.'//cexpnr,position='append')
+
+        write(ifoutput,'(//A,/A,F5.0,A,I4,A,I2,A,I2,A)') &
+              '#--------------------------------------------------------' &
+              ,'#',(timeav),'--- AVERAGING TIMESTEP --- ' &
+              ,nhrs,':',nminut,':',nsecs &
+              ,'   HRS:MIN:SEC AFTER INITIALIZATION '
+        write (ifoutput,'(A/A/A/3A/4A/2A)') &
+              '#(------------------------------------------------------------)' &
+            ,'#                                                             ' &
+            ,'#                                     TURBULENT FLUXES        ' &
+            ,'#LEV HEIGHT  PRES  |    UW_TOT      VW_TOT       UW_SGS   ' &
+            ,'   VW_SGS       UW_RES       VW_RES ' &
+            ,'      WTH_TOT       WQ_L       WTHV_SUB     WTHV_RES     WTHV_TOT' &
+            ,'#     (M)    (MB) |   ' &
+            ,'(---------------------------- (M/S)^2  ---------------------------------)' &
+            ,'   (-(K M/S)-)   (-(' &
+            ,'M/S)-)     (----------  (K M/S)  -----------)' &
+            ,'#(------------------------------------------------------------' &
+            ,'-----------------------------------------)'
+
+        write(ifoutput,'(I3,F10.2,F7.1,11E13.5)') &
             (k, &
-              zf       (k), &
-              presf    (k)/100., &
-              svmmn    (k,n), &
-              svptmn   (k,n)  *convt, &
-              svpmn    (k,n)  *convt, &
-              sv2mn    (k,n), &
+              zh       (k), &
+              presh     (k)/100., &
+              uwtmn    (k)                              , &
+              vwtmn    (k)                              , &
+              uwsmn    (k)                              , &
+              vwsmn    (k)                              , &
+              uwrmn    (k)                              , &
+              vwrmn    (k)                              , &
+              wthltmn   (k) + wqltmn(k)*(rlv/cp)/exnh(k) , &
+              wqltmn   (k)                              , &
+              wthvsmn   (k)                              , &
+              wthvrmn   (k)                              , &
+              wthvtmn   (k)                              , &
+              k=1,kmax)
+
+
+        close(ifoutput)
+
+        open (ifoutput,file='moments.'//cexpnr,position='append')
+
+        write(ifoutput,'(//A,/A,F5.0,A,I4,A,I2,A,I2,A)') &
+          '#--------------------------------------------------------'      &
+          ,'#',(timeav),'--- AVERAGING TIMESTEP --- '      &
+          ,nhrs,':',nminut,':',nsecs      &
+          ,'   HRS:MIN:SEC AFTER INITIALIZATION '
+
+        write (ifoutput,'(3A/3A/3A)') &
+              '#----------------------------------------------------' &
+              ,'---------------------------------------------------' &
+              ,'------------------------------' &
+              ,'#  LEV   HGHT   PRES     THL**2       THV**2         ' &
+              ,'TH**2       QT**2       U*U    ' &
+              ,'  V*V     HGHT     W*W     SKEWW     SFS-TKE' &
+              ,'#        (M)   (MB)     (--------------(K*K)--------' &
+              ,'------)     (G/KG)^2     (-(M/S)' &
+              ,'^2)-)      (M)     (M/S)^2  ()        (M/S)^2'
+
+        write(ifoutput,'(I5,F10.2,F7.1,4E13.5,2F9.4,F10.2,3F9.4)') &
+              (k, &
+              zf    (k), &
+              presf (k)/100., &
+              thl2mn(k), &
+              thv2mn(k), &
+              th2mn (k), &
+              qt2mn (k)*1e6, &
+!               qs2mn (k)*1e6, &
+              u2mn  (k), &
+              v2mn  (k), &
+              zh    (k), &
+              w2mn  (k), &
+              skewmn(k), &
+              w2submn(k), &
               k=1,kmax)
 
         close(ifoutput)
 
 
+  !---  -   Write information about scalar field and its tendencies ------
 
-  !        -----------------------
-  !        Write the scalar fluxes
-  !        -----------------------
-        name = 'svnnnflx.'//cexpnr
-        write (name(3:5),'(i3.3)') n
-        open (ifoutput,file=name,position='append')
+        do n=1,nsv
+          name = 'svnnnfld.'//cexpnr
+          write (name(3:5),'(i3.3)') n
+          open (ifoutput,file=name,position='append')
 
-        write(ifoutput,'(//2A,/A,F5.0,A,I4,A,I2,A,I2,A)') &
-            '#-------------------------------------------------------------' &
-            ,'---------------------------------)' &
-            ,'#',(timeav),'--- AVERAGING TIMESTEP --- ' &
-            ,nhrs,':',nminut,':',nsecs &
-            ,'   HRS:MIN:SEC AFTER INITIALIZATION '
-        write (ifoutput,'(2A/A/A,I2.2,A,/A/A/2A)') &
-            '#---------------------------------------------------------------' &
-            ,'---------------------------------)' &
-            ,'#                                                               ' &
-            ,'#                 |         TURBULENT FLUXES (SV=',n,')       |' &
-            ,'#LEV HEIGHT  PRES       WSV_SUB     WSV_RES     WSV_TOT' &
-            ,'#     (M)    (MB) | (----------   (KG/KG M/S)   --------------) ' &
-            ,'#---------------------------------------------------------------' &
-            ,'---------------------------------)'
+          write(ifoutput,'(//2A,/A,F5.0,A,I4,A,I2,A,I2,A)') &
+              '#-------------------------------------------------------------' &
+              ,'---------------------------------)' &
+              ,'#',(timeav),'--- AVERAGING TIMESTEP --- ' &
+              ,nhrs,':',nminut,':',nsecs &
+              ,'   HRS:MIN:SEC AFTER INITIALIZATION '
 
-        write(ifoutput,'(I3,2F10.2,3E14.5E3)') &
-            (k, &
-              zh       (k), &
-              presh    (k)/100., &
-              wsvsmn   (k,n)                            , &
-              wsvrmn   (k,n)                            , &
-              wsvtmn   (k,n)                            , &
-              k=1,kmax)
+          write (ifoutput,'(2A/A/A/A,I2.2,A,/A/A/2A)') &
+              '#--------------------------------------------------------- ' &
+              ,'--------------' &
+              ,'#               --FIELD &  T E N D E N C I E S  --------    ' &
+              ,'#                                                           ' &
+              ,'#                  |        SCALAR(' &
+              ,n &
+              ,')                  |' &
+              ,'# LEV HEIGHT  PRES      SV(1)      TURB    TOTAL  |' &
+              ,'#      (M)   (MB)  |       -----  (KG/KG/DAY) ----- |' &
+              ,'#----------------------------------------------------------' &
+              ,'-------------'
+          write(ifoutput,'(I4,2F10.2,E14.5e3,2F10.2,E14.5E3)') &
+              (k, &
+                zf       (k), &
+                presf    (k)/100., &
+                svmmn    (k,n), &
+                svptmn   (k,n)  *convt, &
+                svpmn    (k,n)  *convt, &
+                sv2mn    (k,n), &
+                k=1,kmax)
 
-         close(ifoutput)
+          close(ifoutput)
 
-      end do
+  !          -----------------------
+  !          Write the scalar fluxes
+  !          -----------------------
+          name = 'svnnnflx.'//cexpnr
+          write (name(3:5),'(i3.3)') n
+          open (ifoutput,file=name,position='append')
+
+          write(ifoutput,'(//2A,/A,F5.0,A,I4,A,I2,A,I2,A)') &
+              '#-------------------------------------------------------------' &
+              ,'---------------------------------)' &
+              ,'#',(timeav),'--- AVERAGING TIMESTEP --- ' &
+              ,nhrs,':',nminut,':',nsecs &
+              ,'   HRS:MIN:SEC AFTER INITIALIZATION '
+          write (ifoutput,'(2A/A/A,I2.2,A,/A/A/2A)') &
+              '#---------------------------------------------------------------' &
+              ,'---------------------------------)' &
+              ,'#                                                               ' &
+              ,'#                 |         TURBULENT FLUXES (SV=',n,')       |' &
+              ,'#LEV HEIGHT  PRES       WSV_SUB     WSV_RES     WSV_TOT' &
+              ,'#     (M)    (MB) | (----------   (KG/KG M/S)   --------------) ' &
+              ,'#---------------------------------------------------------------' &
+              ,'---------------------------------)'
+
+          write(ifoutput,'(I3,2F10.2,3E14.5E3)') &
+              (k, &
+                zh       (k), &
+                presh    (k)/100., &
+                wsvsmn   (k,n)                            , &
+                wsvrmn   (k,n)                            , &
+                wsvtmn   (k,n)                            , &
+                k=1,kmax)
+
+           close(ifoutput)
+
+        end do
+
+      end if !lascii
+
       if (lnetcdf) then
         vars(:, 1)=rhof
         vars(:, 2)=rhobf
