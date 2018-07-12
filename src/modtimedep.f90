@@ -164,7 +164,7 @@ contains
       if (ltestbed) then
 
         write(*,*) 'inittimedep: testbed mode: data for time-dependent forcing obtained from scm_in.nc'
-      
+
         timeflux(1:kflux) = tb_time
         timels  (1:kls  ) = tb_time
 
@@ -189,7 +189,7 @@ contains
         end do
 
       else
-    
+
         open(ifinput,file='ls_flux.inp.'//cexpnr)
         read(ifinput,'(a80)') chmess
         write(6,*) chmess
@@ -201,14 +201,13 @@ contains
         timeflux = 0
         timels   = 0
 
-
         !--- load fluxes---
         t    = 0
         ierr = 0
         do while (timeflux(t) < runtime)
           t=t+1
           read(ifinput,*, iostat = ierr) timeflux(t), wtsurft(t), wqsurft(t),thlst(t),qtst(t),pst(t)
-          write(*,'(i8,6e12.4)') t,timeflux(t), wtsurft(t), wqsurft(t),thlst(t),qtst(t),pst(t)
+          write(*,'(i8,6e12.4)') t, timeflux(t), wtsurft(t), wqsurft(t), thlst(t), qtst(t), pst(t)
           if (ierr < 0) then
             stop 'STOP: No time dependend data for end of run (surface fluxes)'
           end if
@@ -247,27 +246,15 @@ contains
               dqtdxlst(k,t), &
               dqtdylst(k,t), &
               dqtdtlst(k,t), &
-              thlpcart(k,t)
+              thlpcart(k,t), &
+              dudtlst (k,t), &
+              dvdtlst (k,t)
           end do
         end do
 
         close(ifinput)
 
-      end if   !ltestbed
-
-
-!      do k=kmax,1,-1
-!        write (6,'(3f7.1,5e12.4)') &
-!            height  (k)  , &
-!            ugt     (k,t), &
-!            vgt     (k,t), &
-!            wflst   (k,t), &
-!            dqtdxlst(k,t), &
-!            dqtdylst(k,t), &
-!            dqtdtlst(k,t), &
-!            thlpcart(k,t)
-!      end do
-
+      end if
 
       if(timeflux(1)>runtime) then
         write(6,*) 'Time dependent surface variables do not change before end of'

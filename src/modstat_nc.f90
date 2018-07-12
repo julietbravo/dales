@@ -319,7 +319,8 @@ contains
 
    status = nf90_close(ncid)
    if (status /= nf90_noerr) call nchandle_error(status)
- end subroutine exitstat_nc
+  end subroutine exitstat_nc
+
   subroutine writestat_dims_nc(ncid, ncoarse)
     use modglobal, only : dx,dy,zf,zh,jmax,imax
     use modsurfdata, only : zsoilc,isurf
