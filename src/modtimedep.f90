@@ -95,8 +95,8 @@ contains
       kflux = ntnudge
       kls   = ntnudge
     else
-      kflux = 100
-      kls   = 100
+      kflux = 1000
+      kls   = 1000
     end if
 
     allocate(height   (k1))
