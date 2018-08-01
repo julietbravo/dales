@@ -40,8 +40,9 @@ save
   real    :: dtav, timeav
   integer(kind=longint) :: idtav,itimeav,tnext,tnextwrite
   integer :: nsamples
-  logical :: lstat= .false. !< switch to enable the radiative statistics (on/off)
-  logical :: lradclearair= .false. !< switch to enable the radiative statistics (on/off)
+  logical :: lstat = .false. !< switch to enable the radiative statistics (on/off)
+  logical :: lascii = .true. ! switch for ASCII output
+  logical :: lradclearair = .false. !< switch to enable the radiative statistics (on/off)
 
 !     ------
 
@@ -89,7 +90,7 @@ contains
 
     integer ierr
     namelist/NAMRADSTAT/ &
-    dtav,timeav,lstat,lradclearair
+    dtav,timeav,lstat,lradclearair,lascii
 
     dtav=dtav_glob;timeav=timeav_glob
     lstat = .false.
@@ -172,10 +173,12 @@ contains
     thlswtendmn = 0.0
     thlradlsmn  = 0.0
 
-    if(myid==0)then
-      open (ifoutput,file='radstat.'//cexpnr,status='replace')
-      close (ifoutput)
-    end if
+    if (lascii) then
+      if(myid==0)then
+        open (ifoutput,file='radstat.'//cexpnr,status='replace')
+        close (ifoutput)
+      end if
+    end if ! lascii
     if (lnetcdf) then
       idtav = idtav_prof
       itimeav = itimeav_prof
@@ -196,7 +199,6 @@ contains
         call ncinfo(ncname(10,:),'lwdca','Long wave clear air downward radiative flux','W/m^2','mt')
         call ncinfo(ncname(11,:),'swuca','Short wave clear air upward radiative flux','W/m^2','mt')
         call ncinfo(ncname(12,:),'swdca','Short wave clear air downward radiative flux','W/m^2','mt')
-
 
         call define_nc( ncid_prof, NVar, ncname)
       end if
@@ -384,62 +386,65 @@ contains
   !           ----------------
 
     if(myid==0)then
-      open (ifoutput,file='radstat.'//cexpnr,position='append')
-      write(ifoutput,'(//A,/A,F5.0,A,I4,A,I2,A,I2,A)') &
-      '#--------------------------------------------------------'      &
-      ,'#',(timeav),'--- AVERAGING TIMESTEP --- '      &
-      ,nhrs,':',nminut,':',nsecs      &
-      ,'   HRS:MIN:SEC AFTER INITIALIZATION '
-      write (ifoutput,'(A/2A/2A)') &
-          '#--------------------------------------------------------------------------' &
-          ,'#LEV RAD_FLX_HGHT  THL_HGHT  LW_UP        LW_DN        SW_UP       SW_DN       ' &
-          ,'TL_LW_TEND   TL_SW_TEND   TL_LS_TEND   TL_TEND' &
-          ,'#    (M)    (M)      (W/M^2)      (W/M^2)      (W/M^2)      (W/M^2)      ' &
-          ,'(K/H)         (K/H)        (K/H)        (K/H)'
-      do k=1,kmax
-        write(ifoutput,'(I4,2F10.2,12E13.4)') &
-            k,zh(k), zf(k),&
-            lwumn(k),&
-            lwdmn(k),&
-            swumn(k),&
-            swdmn(k),&
-            thllwtendmn(k)*3600,&
-            thlswtendmn(k)*3600,&
-            thlradlsmn(k) *3600,&
-            thltendmn(k)  *3600,&
-            lwucamn(k),&
-            lwdcamn(k),&
-            swucamn(k),&
-            swdcamn(k)
-      end do
-      close (ifoutput)
 
-     if(iradiation == irad_par .or. iradiation ==irad_rrtmg) then ! delta eddington or RRTMG)
-      open (ifoutput,file='radsplitstat.'//cexpnr,position='append')
-      write(ifoutput,'(//A,/A,F5.0,A,I4,A,I2,A,I2,A)') &
-      '#--------------------------------------------------------'      &
-      ,'#',(timeav),'--- AVERAGING TIMESTEP --- '      &
-      ,nhrs,':',nminut,':',nsecs      &
-      ,'   HRS:MIN:SEC AFTER INITIALIZATION '
-      write (ifoutput,'(A/2A/2A)') &
-          '#--------------------------------------------------------------------------' &
-          ,'#LEV  HGHT        LW_UP       LW_DN         SW_UP      SW_DIR_DN    ' &
-          ,'SW_DIF_DN     SW_DN      TL_SW_TEND' &
-          ,'#  (M)           (W/M^2)     (W/M^2)       (W/M^2)      (W/M^2)     ' &
-          ,'(W/M^2)      (W/M^2)       (K/DAY)'
-      do k=1,kmax
-        write(ifoutput,'(I4,F10.2,7E13.4)') &
-            k,zh(k),&
-            lwumn(k),&
-            lwdmn(k),&
-            swumn(k),&
-            swdirmn(k),&
-            swdifmn(k),&
-            swdmn(k),&
-            thlswtendmn(k)*3600*24
-      end do
-      close (ifoutput)
-      endif
+      if (lascii) then
+        open (ifoutput,file='radstat.'//cexpnr,position='append')
+        write(ifoutput,'(//A,/A,F5.0,A,I4,A,I2,A,I2,A)') &
+        '#--------------------------------------------------------'      &
+        ,'#',(timeav),'--- AVERAGING TIMESTEP --- '      &
+        ,nhrs,':',nminut,':',nsecs      &
+        ,'   HRS:MIN:SEC AFTER INITIALIZATION '
+        write (ifoutput,'(A/2A/2A)') &
+            '#--------------------------------------------------------------------------' &
+            ,'#LEV RAD_FLX_HGHT  THL_HGHT  LW_UP        LW_DN        SW_UP       SW_DN       ' &
+            ,'TL_LW_TEND   TL_SW_TEND   TL_LS_TEND   TL_TEND' &
+            ,'#    (M)    (M)      (W/M^2)      (W/M^2)      (W/M^2)      (W/M^2)      ' &
+            ,'(K/H)         (K/H)        (K/H)        (K/H)'
+        do k=1,kmax
+          write(ifoutput,'(I4,2F10.2,12E13.4)') &
+              k,zh(k), zf(k),&
+              lwumn(k),&
+              lwdmn(k),&
+              swumn(k),&
+              swdmn(k),&
+              thllwtendmn(k)*3600,&
+              thlswtendmn(k)*3600,&
+              thlradlsmn(k) *3600,&
+              thltendmn(k)  *3600,&
+              lwucamn(k),&
+              lwdcamn(k),&
+              swucamn(k),&
+              swdcamn(k)
+        end do
+        close (ifoutput)
+
+        if(iradiation == irad_par .or. iradiation ==irad_rrtmg) then ! delta eddington or RRTMG)
+          open (ifoutput,file='radsplitstat.'//cexpnr,position='append')
+          write(ifoutput,'(//A,/A,F5.0,A,I4,A,I2,A,I2,A)') &
+          '#--------------------------------------------------------'      &
+          ,'#',(timeav),'--- AVERAGING TIMESTEP --- '      &
+          ,nhrs,':',nminut,':',nsecs      &
+          ,'   HRS:MIN:SEC AFTER INITIALIZATION '
+          write (ifoutput,'(A/2A/2A)') &
+              '#--------------------------------------------------------------------------' &
+              ,'#LEV  HGHT        LW_UP       LW_DN         SW_UP      SW_DIR_DN    ' &
+              ,'SW_DIF_DN     SW_DN      TL_SW_TEND' &
+              ,'#  (M)           (W/M^2)     (W/M^2)       (W/M^2)      (W/M^2)     ' &
+              ,'(W/M^2)      (W/M^2)       (K/DAY)'
+          do k=1,kmax
+            write(ifoutput,'(I4,F10.2,7E13.4)') &
+                k,zh(k),&
+                lwumn(k),&
+                lwdmn(k),&
+                swumn(k),&
+                swdirmn(k),&
+                swdifmn(k),&
+                swdmn(k),&
+                thlswtendmn(k)*3600*24
+          end do
+          close (ifoutput)
+        endif
+      endif ! lascii
 
       if (lnetcdf) then
         vars(:, 1) = thltendmn
@@ -454,7 +459,7 @@ contains
         vars(:,10) = lwdcamn
         vars(:,11) = swucamn
         vars(:,12) = swdcamn
-       call writestat_nc(ncid_prof,nvar,ncname,vars(1:kmax,:),nrec_prof,kmax)
+        call writestat_nc(ncid_prof,nvar,ncname,vars(1:kmax,:),nrec_prof,kmax)
       end if
     end if ! end if(myid==0)
 

@@ -40,7 +40,7 @@ module modbudget
   integer(kind=longint) :: idtav, itimeav,tnext,tnextwrite
   integer :: nsamples
   logical :: lbudget= .false. ! switch for turbulent TKE budget
-  logical :: lascii = .true. ! switch for ASCRII output
+  logical :: lascii = .true. ! switch for ASCII output
 
   !time averaged fields, resolved TKE
   real, allocatable :: tkemn(:)   !< Resolved TKE
