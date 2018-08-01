@@ -81,7 +81,7 @@ contains
     integer   :: tempx,tempy
  character(len=1500) :: readbuffer
     namelist/NAMSURFACE/ & !< Soil related variables
-      isurf,tsoilav, tsoildeepav, phiwav, rootfav, &
+      isurf, l_vg, tsoilav, tsoildeepav, phiwav, rootfav, &
       ! Land surface related variables
       lmostlocal, lsmoothflux, lneutral, z0mav, z0hav, rsisurf2, Cskinav, lambdaskinav, albedoav, Qnetav, cvegav, Wlav, &
       ! Jarvis-Steward related variables
@@ -97,8 +97,11 @@ contains
       ! Soil properties
       phi, phifc, phiwp, R10, &
       !2leaf AGS, sunlit/shaded
-      lsplitleaf
-
+      lsplitleaf, &
+      ! Clapp & Hornbegger parameters
+      psisat, bc, gammasat, &
+      ! Van Genuchten parameters
+      nvg, Lvg, alphavg, phir
 
     ! 1    -   Initialize soil
 
@@ -119,6 +122,7 @@ contains
     end if
 
     call MPI_BCAST(isurf        , 1       , MPI_INTEGER, 0, comm3d, mpierr)
+    call MPI_BCAST(l_vg         , 1       , MPI_LOGICAL, 0, comm3d, mpierr)
     call MPI_BCAST(tsoilav      , ksoilmax, MY_REAL, 0, comm3d, mpierr)
     call MPI_BCAST(tsoildeepav  , 1       , MY_REAL, 0, comm3d, mpierr)
     call MPI_BCAST(phiwav       , ksoilmax, MY_REAL, 0, comm3d, mpierr)
@@ -166,6 +170,13 @@ contains
     call MPI_BCAST(phiwp                      ,            1, MY_REAL    , 0, comm3d, mpierr)
     call MPI_BCAST(R10                        ,            1, MY_REAL    , 0, comm3d, mpierr)
     call MPI_BCAST(lsplitleaf                 ,            1, MPI_LOGICAL, 0, comm3d, mpierr)
+    call MPI_BCAST(phir                       ,            1, MY_REAL    , 0, comm3d, mpierr)
+    call MPI_BCAST(alphavg                    ,            1, MY_REAL    , 0, comm3d, mpierr)
+    call MPI_BCAST(nvg                        ,            1, MY_REAL    , 0, comm3d, mpierr)
+    call MPI_BCAST(Lvg                        ,            1, MY_REAL    , 0, comm3d, mpierr)
+    call MPI_BCAST(gammasat                   ,            1, MY_REAL    , 0, comm3d, mpierr)
+    call MPI_BCAST(bc                         ,            1, MY_REAL    , 0, comm3d, mpierr)
+    call MPI_BCAST(psisat                     ,            1, MY_REAL    , 0, comm3d, mpierr)
     
     call MPI_BCAST(land_use(1:mpatch,1:mpatch),mpatch*mpatch, MPI_INTEGER, 0, comm3d, mpierr)
 
@@ -692,7 +703,7 @@ contains
 !> Calculates the interaction with the soil, the surface temperature and humidity, and finally the surface fluxes.
   subroutine surface
     use modglobal,  only : i1,i2,j1,j2,fkar,zf,cu,cv,nsv,ijtot,rd,rv
-    use modfields,  only : thl0, qt0, u0, v0, u0av, v0av
+    use modfields,  only : thl0, qt0, u0, v0, u0av, v0av, rhobf
     use modmpi,     only : my_real, mpierr, comm3d, mpi_sum, excj, excjs, mpi_integer
     use moduser,    only : surf_user
     implicit none
@@ -1505,6 +1516,14 @@ contains
     allocate(tsoildeep(i2,j2))
     allocate(phitot(i2,j2))
 
+    allocate(precipitation(i2,j2))
+    allocate(Ifac(i2,j2))
+    allocate(Ysfc(i2,j2))
+    allocate(inter(i2,j2))
+    allocate(tr(i2,j2))
+    allocate(xitot(i2,j2))
+    allocate(Fdeep(i2,j2))
+
     ! 1.2   -  Initialize arrays
     ! First test, pick ECMWF config
     dzsoil(1) = 0.07
@@ -1524,7 +1543,9 @@ contains
     dzsoilh(ksoilmax) = 0.5 * dzsoil(ksoilmax)
 
     phitot = 0.0
-    ! Calculate conductivity saturated soil
+    xitot = 0.0
+
+    ! Calculate heat conductivity saturated soil
     lambdasat = lambdasm ** (1. - phi) * lambdaw ** (phi)
 
     ! 2.1  -   Allocate arrays
@@ -1573,11 +1594,15 @@ contains
       enddo
 
       do k = 1, ksoilmax
-        phitot(:,:) = phitot(:,:) + rootf(:,:,k)*phiw(:,:,k)
+        xitot(:,:) = xitot(:,:) + rootf(:,:,k)*dzsoil(k)
       end do
 
       do k = 1, ksoilmax
-        phifrac(:,:,k) = rootf(:,:,k)*phiw(:,:,k) / phitot(:,:)
+        phitot(:,:) = phitot(:,:) + (rootf(:,:,k) * dzsoil(k) / xitot(:,:) ) *((phiw(:,:,k) - phiwp) / (phifc - phiwp))
+      end do
+
+      do k = 1, ksoilmax
+        phifrac(:,:,k) = (rootf(:,:,k) * dzsoil(k) / xitot(:,:)) * ((phiw(:,:,k) - phiwp) / (phifc - phiwp)) / phitot(:,:)
       end do
 
     else
@@ -1589,11 +1614,15 @@ contains
       phiw(:,:,4) = phiwav(4)
 
       do k = 1, ksoilmax
-        phitot(:,:) = phitot(:,:) + rootfav(k)*phiw(:,:,k)
+        xitot(:,:) = xitot(:,:) + rootfav(k)*dzsoil(k)
       end do
 
       do k = 1, ksoilmax
-        phifrac(:,:,k) = rootfav(k)*phiw(:,:,k) / phitot(:,:)
+        phitot(:,:) = phitot(:,:) + (rootfav(k) * dzsoil(k) / xitot(:,:) ) *((phiw(:,:,k) - phiwp) / (phifc - phiwp))
+      end do
+
+      do k = 1, ksoilmax
+        phifrac(:,:,k) = (rootfav(k) * dzsoil(k) / xitot(:,:)) * ((phiw(:,:,k) - phiwp) / (phifc - phiwp)) / phitot(:,:)
       end do
 
       ! Set root fraction per layer for short grass
@@ -1620,6 +1649,7 @@ contains
       Wl         = Wlav
     endif
     cliq       = 0.
+    precipitation = 0.
   end subroutine initlsm
 
 
@@ -1627,9 +1657,10 @@ contains
   subroutine do_lsm
 
     use modglobal, only : pref0,boltz,cp,rd,rhow,rlv,i1,j1,rdt,ijtot,rk3step,nsv,xtime,rtimee,xday,xlat,xlon
-    use modfields, only : ql0,qt0,thl0,rhof,presf,svm
+    use modfields, only : ql0,qt0,thl0,rhof,presf,svm, rhobf
     use modraddata,only : iradiation,useMcICA,swd,swu,lwd,lwu,irad_par,swdir,swdif,zenith
     use modmpi, only :comm3d,my_real,mpi_sum,mpierr,mpi_integer,myid
+    use modmicrodata, only : imicro,sed_qr
 
     real     :: f1, f2, f3, f4 ! Correction functions for Jarvis-Stewart
     integer  :: i, j, k, itg
@@ -1640,6 +1671,7 @@ contains
     real     :: exner, exnera, tsurfm, Tatm, e,esat, qsat, desatdT, dqsatdT, Acoef, Bcoef
     real     :: fH, fLE, fLEveg, fLEsoil, fLEliq, LEveg, LEsoil, LEliq
     real     :: Wlmx
+    real     :: S, mvg, Smin, Smax
 
     real     :: CO2ags, CO2comp, gm, fmin0, fmin, esatsurf, Ds, D0, cfrac, co2abs, ci !Variables for AGS
     real     :: Ammax, betaw, fstr, Am, Rdark, PAR, alphac, tempy, An, AGSa1, Dstar, gcco2 !Variables for AGS
@@ -1648,6 +1680,8 @@ contains
     real     :: MW_Air = 28.97
     real     :: MW_CO2 = 44
  
+    real     :: lambdassat, Ifmx, lambdasmin, gammasmin
+
     real     :: sinbeta, kdrbl, kdf, kdr, ref, ref_dir
     real     :: iLAI, fSL
     real     :: PARdfU, PARdfD, PARdfT, PARdrU, PARdrD, PARdrT, dirPAR, difPAR
@@ -1667,16 +1701,25 @@ contains
     patchx = 0
     patchy = 0
 
-    ! 1.X - Compute water content per layer
+    mvg = 1 - (1 / nvg)
+    ! 1.X - Compute weighted water content per layer
     do j = 2,j1
       do i = 2,i1
         phitot(i,j) = 0.0
+        xitot(i,j)  = 0.0
+
+        ! root extraction weights (taken from ISBA-DIF)
         do k = 1, ksoilmax
-          phitot(i,j) = phitot(i,j) + rootf(i,j,k) * max(phiw(i,j,k),phiwp)
+            xitot(i,j) = xitot(i,j) + rootf(i,j,k)*dzsoil(k)
         end do
 
+        ! layer averaged water stress factor (taken from ISBA-DIF)
         do k = 1, ksoilmax
-          phifrac(i,j,k) = rootf(i,j,k) * max(phiw(i,j,k),phiwp) / phitot(i,j)
+            phitot(i,j) = phitot(i,j) + (rootf(i,j,k) * dzsoil(k) / xitot(i,j) ) * min(1.,max(1e-3,((phiw(i,j,k) - phiwp) / (phifc - phiwp))))
+        end do
+        !! Normalized transpiration weigths (taken from ISBA-DIF)
+        do k = 1, ksoilmax
+            phifrac(i,j,k) = (rootf(i,j,k) * dzsoil(k) / xitot(i,j)) * min(1.,max(1e-3,((phiw(i,j,k) - phiwp) / (phifc - phiwp)))) / phitot(i,j)
         end do
       end do
     end do
@@ -1766,7 +1809,8 @@ contains
         end if
 
         ! Soil moisture availability
-        f2  = (phifc - phiwp) / (phitot(i,j) - phiwp)
+        !! MvT Modified due to problems in previous f2 calculation
+        f2  = 1. / phitot(i,j)
         ! Prevent f2 becoming less than 1
         f2  = max(f2, 1.)
         ! Put upper boundary on f2 for cases with very dry soils
@@ -1787,7 +1831,7 @@ contains
         Tatm    = exnera * thl0(i,j,1) + (rlv / cp) * ql0(i,j,1)
         f4      = 1./ (1. - 0.0016 * (298.0 - Tatm) ** 2.)
 
-        rsveg(i,j)  = rsmin(i,j) / LAI(i,j) * f1 * f2 * f3! * f4 Not considered anymore
+        rsveg(i,j)  = rsmin(i,j) / LAI(i,j) * f1 * f2 * f3 ! * f4 Not considered anymore
 
         ! 2.1a  - Recalculate vegetation resistance using AGS
 
@@ -2094,6 +2138,39 @@ contains
         else
           Wl(i,j)       =  Wlm(i,j) - rk3coef * (LEliq / (rhow * rlv))
         end if
+        if(Wl(i,j) < 0.) then
+            Wl(i,j) = 0
+        endif
+        Wl(i,j) =  min(Wlmx,Wl(i,j))
+
+        !! MvT In case of precipitation, calculate amount of interception
+        select case(imicro)
+          case(0)
+            precipitation(i,j) = 0.
+          case default
+            precipitation(i,j) = sed_qr(i,j,1) ! [kg/m2/s]
+        end select
+
+        if (precipitation(i,j)/=0) then
+            inter(i,j) =  min(Wlmx-Wl(i,j),rk3coef * precipitation(i,j) / rhow) ![m]
+            ! Prevent liquid water reservoir to exceed maximum capacity
+            Wl(i,j) =  min(Wlmx,Wl(i,j) + inter(i,j))
+        else
+            inter(i,j) = 0
+        end if
+
+        if (Wl(i,j) < 1e-10) then
+            Wl(i,j) = 0
+        end if
+
+        inter(i,j) = inter(i,j) * rhow / rk3coef  ![kg/m2/s]
+
+        !! MvT Calculate throughfall flux (precipitation - interception) [kg/m2/s]
+        tr(i,j)   =   precipitation(i,j) - inter(i,j)
+        ! Prevent troughfall from having very small values
+        if (tr(i,j) .lt. 1e-16) then
+            tr(i,j) = 0
+        end if
 
         thlsl = thlsl + tskin(i,j)
         if (lhetero) then
@@ -2120,9 +2197,38 @@ contains
 
         lambdah(i,j,ksoilmax) = lambda(i,j,ksoilmax)
 
+        ! Calculate the soil hydraulic conductivity and diffusivity based on water content
+        ! MvT Van Genuchten hydraulic functions
+        if (l_vg) then
+          do k = 1, ksoilmax
+            S = (phiw(i,j,k) - phir) / (phi - phir)
+            !MvT not needed !Pore pressure! Psi = (1. / alphavg) * (S ** (-1. / mvg) - 1.) ** (1. / nvg)
+            gammas(i,j,k) = gammasat * S ** (Lvg) * (1 - (1 - S ** (1 / mvg)) ** mvg) ** 2
+            lambdas(i,j,k) = ((1. - mvg) * gammasat) / (alphavg * mvg * (phi - phir)) * S ** (Lvg - 1. / mvg) * ((1. - S ** (1. / mvg)) ** (-mvg) + (1. - (S ** (1. / mvg))) ** (mvg) -2)
+          end do
+        ! Mimumum values
+        Smin = (1.001 * phir - phir) / (phi - phir)
+        lambdasmin = ((1. - mvg) * gammasat) / (alphavg * mvg * (phi - phir)) * Smin ** (Lvg - 1. / mvg) * ((1. - Smin ** (1. / mvg)) ** (-mvg) + (1. - (Smin ** (1. / mvg))) ** (mvg) -2)
+        gammasmin = gammasat * Smin ** (Lvg) * (1 - (1 - Smin ** (1 / mvg)) ** mvg) ** 2
+        ! Maximum diffusivity
+        Smax = (0.999 * phi - phir) / (phi - phir)
+        lambdassat = ((1. - mvg) * gammasat) / (alphavg * mvg * (phi - phir)) * Smax ** (Lvg - 1. / mvg) * ((1. - Smax ** (1. / mvg)) ** (-mvg) + (1. - (Smax ** (1. / mvg))) ** (mvg) -2)
+
+
+        ! Clapp & Hornberger hydraulic functions
+        else
+          do k = 1, ksoilmax
+            gammas(i,j,k)  = gammasat * (phiw(i,j,k) / phi) ** (2. * bc + 3.)
+            lambdas(i,j,k) = bc * gammasat * (-1.) * psisat / phi * (phiw(i,j,k) / phi) ** (bc + 2.)
+          end do
+          lambdasmin = bc * gammasat * (-1.) * psisat / phi * (phiwp / phi) ** (bc + 2.)
+          gammasmin  = gammasat * (phiwp / phi) ** (2. * bc + 3.)
+          lambdassat   =   bc * gammasat  * (-1) * psisat / phi
+        endif
+
         do k = 1, ksoilmax
-          gammas(i,j,k)  = gammasat * (phiw(i,j,k) / phi) ** (2. * bc + 3.)
-          lambdas(i,j,k) = bc * gammasat * (-1.) * psisat / phi * (phiw(i,j,k) / phi) ** (bc + 2.)
+          lambdas(i,j,k) = max(min(lambdassat,lambdas(i,j,k)),lambdasmin)
+          gammas(i,j,k)  = max(min(gammasat,gammas(i,j,k)),gammasmin)
         end do
 
         do k = 1, ksoilmax-1
@@ -2131,6 +2237,19 @@ contains
         end do
 
         lambdash(i,j,ksoilmax) = lambdas(i,j,ksoilmax)
+
+
+        ! MvT Calculate maximum infiltration rate based on soil water content [kg/m2/s]
+        Ifmx        =  max(0., (rhow *  (lambdassat * (phi - phiw(i,j,1)) / (0.5 *dzsoil(1)) + gammasat)))
+
+        ! MvT Calculate actual infiltration and surface runoff mass fluxes [kg/m2/s]
+        if (precipitation(i,j)/=0) then
+          Ifac(i,j) = min(Ifmx, tr(i,j))
+          Ysfc(i,j) = tr(i,j) - Ifac(i,j)
+        else
+          Ifac(i,j) = 0
+          Ysfc(i,j) = 0
+        end if
 
         ! 1.4   -   Solve the diffusion equation for the heat transport
         tsoil(i,j,1) = tsoilm(i,j,1) + rk3coef / pCs(i,j,1) * ( lambdah(i,j,1) &
@@ -2142,18 +2261,32 @@ contains
         tsoil(i,j,ksoilmax) = tsoilm(i,j,ksoilmax) + rk3coef / pCs(i,j,ksoilmax) * ( lambda(i,j,ksoilmax) * &
         (tsoildeep(i,j) - tsoil(i,j,ksoilmax)) / dzsoil(ksoilmax) - lambdah(i,j,ksoilmax-1) * &
         (tsoil(i,j,ksoilmax) - tsoil(i,j,ksoilmax-1)) / dzsoil(ksoilmax-1) ) / dzsoil(ksoilmax)
+
         ! 1.5   -   Solve the diffusion equation for the moisture transport
+        !! MvT Removed dew deposition on soil
+        !if(qsat(i,j) - qt0(i,j,1) < 0.) then
+        !    phiw(i,j,1) = phiwm(i,j,1) + rk3coef * ( lambdash(i,j,1) * (phiw(i,j,2) - phiw(i,j,1)) / &
+        !    dzsoilh(1) - gammash(i,j,1) + (Ifac(i,j) / rhow  ) ) / dzsoil(1)
+        !else
+        !    phiw(i,j,1) = phiwm(i,j,1) + rk3coef * ( lambdash(i,j,1) * (phiw(i,j,2) - phiw(i,j,1)) / &
+        !    dzsoilh(1) - gammash(i,j,1) - ((phifrac(i,j,1) * LEveg + LEsoil) / (rhow*rlv) - (Ifac(i,j) / rhow) ) ) / dzsoil(1)
+        !end if
+
         phiw(i,j,1) = phiwm(i,j,1) + rk3coef * ( lambdash(i,j,1) * (phiw(i,j,2) - phiw(i,j,1)) / &
-        dzsoilh(1) - gammash(i,j,1) - (phifrac(i,j,1) * LEveg + LEsoil) / (rhow*rlv)) / dzsoil(1)
+        dzsoilh(1) - gammash(i,j,1) - ((phifrac(i,j,1) * LEveg + LEsoil) / (rhow*rlv) - (Ifac(i,j) / rhow) ) ) / dzsoil(1)
+
         do k = 2, ksoilmax-1
           phiw(i,j,k) = phiwm(i,j,k) + rk3coef * ( lambdash(i,j,k) * (phiw(i,j,k+1) - phiw(i,j,k)) / &
           dzsoilh(k) - gammash(i,j,k) - lambdash(i,j,k-1) * (phiw(i,j,k) - phiw(i,j,k-1)) / dzsoilh(k-1) + &
           gammash(i,j,k-1) - (phifrac(i,j,k) * LEveg) / (rhow*rlv)) / dzsoil(k)
         end do
-        ! closed bottom for now
+
+        !! MvT Free drainage at bottom
+        Fdeep(i,j) = - rhow * gammas(i,j,ksoilmax) ! [kg/m2/s]
         phiw(i,j,ksoilmax) = phiwm(i,j,ksoilmax) + rk3coef * (- lambdash(i,j,ksoilmax-1) * &
         (phiw(i,j,ksoilmax) - phiw(i,j,ksoilmax-1)) / dzsoil(ksoilmax-1) + gammash(i,j,ksoilmax-1) &
-        - (phifrac(i,j,ksoilmax) * LEveg) / (rhow*rlv) ) / dzsoil(ksoilmax)
+        - (phifrac(i,j,ksoilmax) * LEveg) / (rhow*rlv) + (Fdeep(i,j) / rhow) ) / dzsoil(ksoilmax)
+!        - (phifrac(i,j,ksoilmax) * LEveg) / (rhow*rlv) ) / dzsoil(ksoilmax)
       end do
     end do
 

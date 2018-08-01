@@ -35,6 +35,8 @@ module modsurfdata
 SAVE
   integer :: isurf        = -1            !<   Flag for surface parametrization
 
+  logical :: l_vg        = .true. 	  !< Van Genuchten parametrization (.true.) / Clapp & Hornberger parametrization (.false.)   (in namelist NAMSURFACE)
+
   ! Soil properties
 
   ! Domain-uniform properties
@@ -61,6 +63,7 @@ SAVE
   real, allocatable :: phifrac (:,:,:)    !<  Relative water content per layer [-]
   real              :: phiwav  (ksoilmax)
   real, allocatable :: phitot  (:,:)      !<  Total soil water content [-]
+  real, allocatable :: xitot   (:,:)      !<  root extraction weights [-]
   real, allocatable :: pCs     (:,:,:)    !<  Volumetric heat capacity [J/m3/K]
   real, allocatable :: rootf   (:,:,:)    !<  Root fraction per soil layer [-]
   real              :: rootfav (ksoilmax)
@@ -76,11 +79,28 @@ SAVE
   real, allocatable :: lwuavn  (:,:,:)
 
   integer           :: nradtime  = 60
+ 
+  ! Water fluxes in 2D
+  real, allocatable :: precipitation (:,:) !< Precipitation at the surface [kg/m2/s]
+  real, allocatable :: Ifac       (:,:)    !<  Actual infitration [kg/m2/s]
+  real, allocatable :: Ysfc       (:,:)    !<  Runoff [kg/m2/s]
+  real, allocatable :: inter      (:,:)    !<  Interception [kg/m2/s]
+  real, allocatable :: tr         (:,:)    !<  Throughfall [kg/m2/s]
+  real, allocatable :: Fdeep      (:,:)    !<  Hydraulic flux at bottom  [kg/m2/s]
 
   ! Soil related properties [case specific]
-  real              :: phi       = 0.472  !<  volumetric soil porosity [-]
-  real              :: phifc     = 0.323  !<  volumetric moisture at field capacity [-]
-  real              :: phiwp     = 0.171  !<  volumetric moisture at wilting point [-]
+  real              :: phi       = 0.472  !<  volumetric soil porosity [m3/m3]
+  real              :: phifc     = 0.323  !<  volumetric moisture at field capacity [m3/m3]
+  real              :: phiwp     = 0.171  !<  volumetric moisture at wilting point [m3/m3]
+
+  real              :: bc        = 6.04     !< Clapp and Hornberger (C&H) non-dimensional exponent [-]
+  real              :: gammasat  = 0.57e-6  !< Hydraulic conductivity at saturation for medium C&H soil [m s-1]
+  real              :: psisat    = -0.388   !< Matrix potential at saturation for medium C&H soil [m]
+
+  real              :: nvg       = 1.28     !< Van Genuchten soil particle size distribution parameter for medium soil [-]
+  real              :: Lvg       = -2.342   !< Van Genuchten pore connectivity parameter for medium soil [-]
+  real              :: alphavg   = 3.14     !< Van Genuchten coarseness of soil texture parameter for medium soil [m-1]
+  real              :: phir      = 0.01     !< Van Genuchten residual moisture content for medium soil [m3/m3]
 
   ! Soil related constants [adapted from ECMWF]
   real, parameter   :: pCm       = 2.19e6 !<  Volumetric soil heat capacity [J/m3/K]
@@ -89,12 +109,6 @@ SAVE
   real, parameter   :: lambdadry = 0.190  !<  Heat conductivity dry soil [W/m/K]
   real, parameter   :: lambdasm  = 3.11   !<  Heat conductivity soil matrix [W/m/K]
   real, parameter   :: lambdaw   = 0.57   !<  Heat conductivity water [W/m/K]
-
-  real, parameter   :: bc        = 6.04     !< Clapp and Hornberger non-dimensional exponent [-]
-  real, parameter   :: gammasat  = 0.57e-6  !< Hydraulic conductivity at saturation [m s-1]
-  real, parameter   :: psisat    = -0.388   !< Matrix potential at saturation [m]
-
-  ! Land surface properties
 
   ! Surface properties
   real, allocatable :: z0m        (:,:) !<  Roughness length for momentum [m]
