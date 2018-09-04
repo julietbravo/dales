@@ -39,7 +39,7 @@ SAVE
   real, dimension(:)  , allocatable :: timenudge
   real :: tnudgefac = 1.
   logical :: lnudge = .false.,lunudge,lvnudge,lwnudge,lthlnudge,lqtnudge
-  integer :: ntnudge = 1000
+  integer :: ntnudge = 10000
 
 contains
   subroutine initnudge
