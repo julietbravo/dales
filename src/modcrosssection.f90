@@ -460,7 +460,7 @@ contains
       call writestat_nc(ncid2(cross),1,tncname2,(/rtimee/),nrec2(cross),.true.)
       call writestat_nc(ncid2(cross),nvar,ncname2(1:nvar,:),vars,nrec2(cross),imax,jmax)
       deallocate(vars)
-      if (lsync) call sync_nc(ncid2)
+      if (lsync) call sync_nc(ncid1)
       end do
     end if
 
@@ -506,7 +506,7 @@ contains
       call writestat_nc(ncid4,1,tncname4,(/rtimee/),nrec4,.true.)
       call writestat_nc(ncid4,nvar_path,ncname4,vars,nrec4,imax,jmax)
       deallocate(vars)
-      if (lsync) call sync_nc(ncid4)
+      if (lsync) call sync_nc(ncid1)
     end if
 
     deallocate(lwp,rwp)
@@ -608,7 +608,7 @@ contains
       call writestat_nc(ncid3,1,tncname3,(/rtimee/),nrec3,.true.)
       call writestat_nc(ncid3,nvar,ncname3(1:nvar,:),vars,nrec3,jmax,kmax)
       deallocate(vars)
-      if (lsync) call sync_nc(ncid3)
+      if (lsync) call sync_nc(ncid1)
     end if
 
     deallocate(thv0,buoy)
