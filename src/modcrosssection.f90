@@ -36,26 +36,37 @@ private
 PUBLIC :: initcrosssection, crosssection,exitcrosssection
 save
 !NetCDF variables
-  integer,parameter :: nvar = 12
+  integer,parameter :: nvar = 12       !< number of variables in xy, xz and yz crossections
+  integer,parameter :: nvar_path = 2   !< number of variables in the xy-path crosssections
+
   integer :: ncid1 = 0
   integer,allocatable :: ncid2(:)
   integer :: ncid3 = 1
+  integer :: ncid4 = 2
+
   integer :: nrec1 = 0
   integer,allocatable :: nrec2(:)
   integer :: nrec3 = 0
+  integer :: nrec4 = 0
+
   integer :: crossheight(100)
   integer :: nxy = 0
   integer :: cross
+
   character(4) :: cheight
   character(80) :: fname1 = 'crossxz.xxxxyxxx.xxx.nc'
   character(80) :: fname2 = 'crossxy.xxxx.xxxxyxxx.xxx.nc'
   character(80) :: fname3 = 'crossyz.xxxxyxxx.xxx.nc'
+  character(80) :: fname4 = 'crossxy.xxxxyxxx.xxx.nc'
+
   character(80),dimension(nvar,4) :: ncname1
   character(80),dimension(1,4) :: tncname1
   character(80),dimension(nvar,4) :: ncname2
   character(80),dimension(1,4) :: tncname2
   character(80),dimension(nvar,4) :: ncname3
   character(80),dimension(1,4) :: tncname3
+  character(80),dimension(nvar_path,4) :: ncname4
+  character(80),dimension(1,4) :: tncname4
 
   real    :: dtav
   integer(kind=longint) :: idtav,tnext
@@ -67,6 +78,7 @@ save
   logical :: lxy = .true.   !< switch for doing xy crosssections
   logical :: lxz = .true.   !< switch for doing xz crosssections
   logical :: lyz = .true.   !< switch for doing yz crosssections
+  logical :: lpath = .true. !< switch for doing xy path crosssections
 
 contains
 !> Initializing Crosssection. Read out the namelist, initializing the variables
@@ -79,12 +91,12 @@ contains
     integer :: ierr,k
 
     namelist/NAMCROSSSECTION/ &
-    lcross, lbinary, dtav, crossheight, crossplane, crossortho, lxy, lxz, lyz
+    lcross, lbinary, dtav, crossheight, crossplane, crossortho, lxy, lxz, lyz, lpath
 
     allocate(ncid2(kmax),nrec2(kmax))
     crossheight(1)=2
     crossheight(2:100)=-999
-    ncid2(1)=2
+    ncid2(1)=3
     ncid2(2:kmax)=0
     nrec2(1:kmax)=0
 
@@ -106,13 +118,11 @@ contains
     call MPI_BCAST(lxy        ,1,MPI_LOGICAL,0,comm3d,mpierr)
     call MPI_BCAST(lxz        ,1,MPI_LOGICAL,0,comm3d,mpierr)
     call MPI_BCAST(lyz        ,1,MPI_LOGICAL,0,comm3d,mpierr)
+    call MPI_BCAST(lpath      ,1,MPI_LOGICAL,0,comm3d,mpierr)
     call mpi_bcast(lbinary    ,1,mpi_logical,0,comm3d,mpierr)
     call MPI_BCAST(crossheight(1:100),100,MPI_INTEGER,0,comm3d,mpierr)
     call MPI_BCAST(crossplane ,1,MPI_INTEGER,0,comm3d,mpierr)
     call MPI_BCAST(crossortho ,1,MPI_INTEGER,0,comm3d,mpierr)
-
-
-
 
     nxy=0
     k=1
@@ -204,13 +214,28 @@ contains
         call ncinfo(ncname3(10,:),'nryz','yz crosssection of the Number concentration','-','0ttt')
         call ncinfo(ncname3(11,:),'cloudnryz','yz crosssection of the cloud number','-','0ttt')
         call ncinfo(ncname3(12,:),'e120yz','yz crosssection of sqrt(turbulent kinetic energy)','m^2/s^2','0ttt')
-        call open_nc(fname3,  ncid3,nrec3,n2=jmax,n3=kmax)
+        call open_nc(fname3, ncid3, nrec3, n2=jmax, n3=kmax)
         if (nrec3==0) then
-          call define_nc( ncid3, 1, tncname3)
+          call define_nc(ncid3, 1, tncname3)
           call writestat_dims_nc(ncid3)
         end if
         call define_nc( ncid3, NVar, ncname3)
       end if
+
+      if (lpath) then
+        fname4(9:16) = cmyid
+        fname4(18:20) = cexpnr
+        call ncinfo(tncname4(1,:),'time','Time','s','time')
+        call ncinfo(ncname4( 1,:),'lwpxy','Cloud liquid water path','kg/m2','tt0t')
+        call ncinfo(ncname4( 2,:),'rwpxy','Rain water path','kg/m2','tt0t')
+        call open_nc(fname4, ncid4, nrec4, n1=imax, n2=jmax)
+        if (nrec4==0) then
+          call define_nc( ncid4, 1, tncname4)
+          call writestat_dims_nc(ncid4)
+        end if
+        call define_nc( ncid4, nvar_path, ncname4)
+      end if
+
     end if
 
 
@@ -231,9 +256,10 @@ contains
     tnext = tnext+idtav
     dt_lim = minval((/dt_lim,tnext-timee/))
 
-    if (lxz) call wrtvert
-    if (lxy) call wrthorz
-    if (lyz) call wrtorth
+    if (lxz)   call wrtvert
+    if (lxy)   call wrthorz
+    if (lyz)   call wrtorth
+    if (lpath) call wrtpath
 
   end subroutine crosssection
 
@@ -243,7 +269,7 @@ contains
   use modglobal, only : imax,i1,kmax,nsv,rlv,cp,rv,rd,cu,cv,cexpnr,ifoutput,rtimee
   use modfields, only : um,vm,wm,thlm,qtm,svm,thl0,qt0,ql0,e120,exnf,thvf,cloudnr
   use modmpi,    only : myidy
-  use modstat_nc, only : lnetcdf, writestat_nc
+  use modstat_nc, only : lnetcdf, writestat_nc, lsync, sync_nc
   implicit none
 
   integer i,k,n
@@ -328,6 +354,7 @@ contains
       call writestat_nc(ncid1,1,tncname1,(/rtimee/),nrec1,.true.)
       call writestat_nc(ncid1,nvar,ncname1(1:nvar,:),vars,nrec1,imax,kmax)
       deallocate(vars)
+      if (lsync) call sync_nc(ncid1)
     end if
     deallocate(thv0,buoy)
 
@@ -338,7 +365,7 @@ contains
     use modglobal, only : imax,jmax,i1,j1,nsv,rlv,cp,rv,rd,cu,cv,cexpnr,ifoutput,rtimee
     use modfields, only : um,vm,wm,thlm,qtm,svm,thl0,qt0,ql0,e120,exnf,thvf,cloudnr
     use modmpi,    only : cmyid
-    use modstat_nc, only : lnetcdf, writestat_nc
+    use modstat_nc, only : lnetcdf, writestat_nc, lsync, sync_nc
     use modmicrodata, only : iqr,inr
     implicit none
 
@@ -433,6 +460,7 @@ contains
       call writestat_nc(ncid2(cross),1,tncname2,(/rtimee/),nrec2(cross),.true.)
       call writestat_nc(ncid2(cross),nvar,ncname2(1:nvar,:),vars,nrec2(cross),imax,jmax)
       deallocate(vars)
+      if (lsync) call sync_nc(ncid1)
       end do
     end if
 
@@ -440,14 +468,58 @@ contains
 
   end subroutine wrthorz
 
+!> Do the xy-path crosssections and dump them to file
+  subroutine wrtpath
+    use modglobal, only : imax,jmax,i1,j1,nsv,cexpnr,ifoutput,rtimee,dzf
+    use modfields, only : svm,ql0,rhof
+    use modmpi,    only : cmyid
+    use modstat_nc, only : lnetcdf, writestat_nc, lsync, sync_nc
+    use modmicrodata, only : iqr
+    implicit none
+
+    integer i,j,k
+    character(40) :: name
+    real, allocatable :: lwp(:,:), rwp(:,:), vars(:,:,:)
+
+    allocate(lwp(2:i1,2:j1),rwp(2:i1,2:j1))
+
+    ! Calculate cloud and rain water paths
+    do j=2,j1
+      do i=2,i1
+        lwp(i,j) = 0
+        rwp(i,j) = 0
+        do k=1,kmax
+          lwp(i,j) = lwp(i,j) + rhof(k) * ql0(i,j,k) * dzf(k)
+
+          if(nsv>1) then
+            rwp(i,j) = rwp(i,j) + rhof(k) * svm(i,j,k,iqr) * dzf(k)
+          end if
+        end do
+      end do
+    end do
+
+    if (lnetcdf) then
+      allocate(vars(1:imax,1:jmax,nvar_path))
+      vars=0.
+      vars(:,:,1) = lwp(2:i1,2:j1)
+      vars(:,:,2) = rwp(2:i1,2:j1)
+      call writestat_nc(ncid4,1,tncname4,(/rtimee/),nrec4,.true.)
+      call writestat_nc(ncid4,nvar_path,ncname4,vars,nrec4,imax,jmax)
+      deallocate(vars)
+      if (lsync) call sync_nc(ncid1)
+    end if
+
+    deallocate(lwp,rwp)
+
+  end subroutine wrtpath
+
   ! yz cross section
   subroutine wrtorth
     use modglobal, only : jmax,kmax,j1,nsv,rlv,cp,rv,rd,cu,cv,cexpnr,ifoutput,rtimee
     use modfields, only : um,vm,wm,thlm,qtm,svm,thl0,qt0,ql0,e120,exnf,thvf,cloudnr
     use modmpi,    only : cmyid, myidx
-    use modstat_nc, only : lnetcdf, writestat_nc
+    use modstat_nc, only : lnetcdf, writestat_nc, lsync, sync_nc
     implicit none
-
 
     ! LOCAL
     integer j,k,n
@@ -536,6 +608,7 @@ contains
       call writestat_nc(ncid3,1,tncname3,(/rtimee/),nrec3,.true.)
       call writestat_nc(ncid3,nvar,ncname3(1:nvar,:),vars,nrec3,jmax,kmax)
       deallocate(vars)
+      if (lsync) call sync_nc(ncid1)
     end if
 
     deallocate(thv0,buoy)
@@ -545,13 +618,11 @@ contains
 !> Clean up when leaving the run
   subroutine exitcrosssection
     use modstat_nc, only : exitstat_nc,lnetcdf
-    use modmpi, only : myid
+    use modmpi, only : myid, myidx, myidy
     implicit none
 
     if(lcross .and. lnetcdf) then
-      if (myid==0 .and. lxz) then
-        call exitstat_nc(ncid1)
-      end if
+      if (myidy ==0 .and. lxz)   call exitstat_nc(ncid1)
 
       if (lxy) then
         do cross=1,nxy
@@ -559,9 +630,8 @@ contains
         end do
       end if
 
-      if (lyz) then
-        call exitstat_nc(ncid3)
-      end if
+      if (myidx==0 .and. lyz)   call exitstat_nc(ncid3)
+      if (lpath)                call exitstat_nc(ncid4)
     end if
 
   end subroutine exitcrosssection
