@@ -269,7 +269,7 @@ contains
   use modglobal, only : imax,i1,kmax,nsv,rlv,cp,rv,rd,cu,cv,cexpnr,ifoutput,rtimee
   use modfields, only : um,vm,wm,thlm,qtm,svm,thl0,qt0,ql0,e120,exnf,thvf,cloudnr
   use modmpi,    only : myidy
-  use modstat_nc, only : lnetcdf, writestat_nc, lsync, sync_nc
+  use modstat_nc, only : lnetcdf, writestat_nc
   implicit none
 
   integer i,k,n
@@ -354,7 +354,6 @@ contains
       call writestat_nc(ncid1,1,tncname1,(/rtimee/),nrec1,.true.)
       call writestat_nc(ncid1,nvar,ncname1(1:nvar,:),vars,nrec1,imax,kmax)
       deallocate(vars)
-      if (lsync) call sync_nc(ncid1)
     end if
     deallocate(thv0,buoy)
 
@@ -365,7 +364,7 @@ contains
     use modglobal, only : imax,jmax,i1,j1,nsv,rlv,cp,rv,rd,cu,cv,cexpnr,ifoutput,rtimee
     use modfields, only : um,vm,wm,thlm,qtm,svm,thl0,qt0,ql0,e120,exnf,thvf,cloudnr
     use modmpi,    only : cmyid
-    use modstat_nc, only : lnetcdf, writestat_nc, lsync, sync_nc
+    use modstat_nc, only : lnetcdf, writestat_nc
     use modmicrodata, only : iqr,inr
     implicit none
 
@@ -460,7 +459,6 @@ contains
       call writestat_nc(ncid2(cross),1,tncname2,(/rtimee/),nrec2(cross),.true.)
       call writestat_nc(ncid2(cross),nvar,ncname2(1:nvar,:),vars,nrec2(cross),imax,jmax)
       deallocate(vars)
-      if (lsync) call sync_nc(ncid2(cross))
       end do
     end if
 
@@ -473,7 +471,7 @@ contains
     use modglobal, only : imax,jmax,i1,j1,nsv,cexpnr,ifoutput,rtimee,dzf
     use modfields, only : svm,ql0,rhof
     use modmpi,    only : cmyid
-    use modstat_nc, only : lnetcdf, writestat_nc, lsync, sync_nc
+    use modstat_nc, only : lnetcdf, writestat_nc
     use modmicrodata, only : iqr
     implicit none
 
@@ -506,7 +504,6 @@ contains
       call writestat_nc(ncid4,1,tncname4,(/rtimee/),nrec4,.true.)
       call writestat_nc(ncid4,nvar_path,ncname4,vars,nrec4,imax,jmax)
       deallocate(vars)
-      if (lsync) call sync_nc(ncid4)
     end if
 
     deallocate(lwp,rwp)
@@ -518,7 +515,7 @@ contains
     use modglobal, only : jmax,kmax,j1,nsv,rlv,cp,rv,rd,cu,cv,cexpnr,ifoutput,rtimee
     use modfields, only : um,vm,wm,thlm,qtm,svm,thl0,qt0,ql0,e120,exnf,thvf,cloudnr
     use modmpi,    only : cmyid, myidx
-    use modstat_nc, only : lnetcdf, writestat_nc, lsync, sync_nc
+    use modstat_nc, only : lnetcdf, writestat_nc
     implicit none
 
     ! LOCAL
@@ -608,7 +605,6 @@ contains
       call writestat_nc(ncid3,1,tncname3,(/rtimee/),nrec3,.true.)
       call writestat_nc(ncid3,nvar,ncname3(1:nvar,:),vars,nrec3,jmax,kmax)
       deallocate(vars)
-      if (lsync) call sync_nc(ncid3)
     end if
 
     deallocate(thv0,buoy)
