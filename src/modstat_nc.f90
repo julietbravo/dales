@@ -68,6 +68,7 @@ contains
     end if
 
     call MPI_BCAST(lnetcdf    ,1,MPI_LOGICAL, 0,comm3d,mpierr)
+    call MPI_BCAST(lsync      ,1,MPI_LOGICAL, 0,comm3d,mpierr)
 
   end subroutine initstat_nc
 !
