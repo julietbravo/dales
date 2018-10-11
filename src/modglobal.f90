@@ -49,6 +49,7 @@ save
       character(50) :: fname_options = 'namoptions'
       integer, parameter :: longint=8
       logical :: lwarmstart = .false.!<   flag for "cold" or "warm" start
+      logical :: nc_input   = .false.!<   if true then ncdf input file is used
       real    :: trestart  = 3600. !<     * each trestart sec. a restart file is written to disk
       integer(kind=longint) :: itrestart !<     * each trestart sec. a restart file is written to disk
       integer(kind=longint)    :: tnextrestart    !<     * each trestart sec. a restart file is written to disk
@@ -225,12 +226,15 @@ contains
 !! Set courant number, calculate the grid sizes (both computational and physical), and set the coriolis parameter
   subroutine initglobal
     use modmpi, only : nprocx, nprocy, myid,comm3d, my_real, mpierr
+    use netcdf
     implicit none
 
     integer :: advarr(4)
     real phi, colat, silat, omega, omega_gs
     integer :: k, n, m
     character(80) chmess
+
+    integer :: sts ,ncid,varID
 
     !timestepping
     if (courant<0) then
@@ -393,16 +397,26 @@ contains
 
 
     if(myid==0)then
-      open (ifinput,file='prof.inp.'//cexpnr)
-      read(ifinput,'(a72)') chmess
-      read(ifinput,'(a72)') chmess
+      if (nc_input) then
+        sts = nf90_open('case_setup.nc', nf90_nowrite, ncid)
+        if (sts.ne.nf90_noerr) then 
+          stop 'Error in reading case_setup.nc'
+        endif
 
-      do k=1,kmax
-        read(ifinput,*) zf(k)
-      end do
-      close(ifinput)
+        sts = nf90_inq_varid(ncid, "zf", varID)
+        sts = nf90_get_var(ncid, varID, zf(1:kmax)) 
+        sts = nf90_close(ncid)
+      else
+        open (ifinput,file='prof.inp.'//cexpnr)
+        read(ifinput,'(a72)') chmess
+        read(ifinput,'(a72)') chmess
 
-    end if ! end if myid==0
+        do k=1,kmax
+          read(ifinput,*) zf(k)
+        end do
+        close(ifinput)
+      endif ! nc_input
+    end if ! myid==0
 
   ! MPI broadcast kmax elements from zf
 
