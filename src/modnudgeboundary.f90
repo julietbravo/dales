@@ -82,7 +82,7 @@ contains
 
     subroutine nudgeboundary
         use modglobal, only : i1, j1, kmax, rdt, cu, cv
-        use modfields, only : u0, up, v0, vp, thl0, thlp, qt0, qtp, uprof, vprof, thlprof, qtprof
+        use modfields, only : u0, up, v0, vp, w0, wp, thl0, thlp, qt0, qtp, uprof, vprof, thlprof, qtprof
         implicit none
 
         integer :: i,j,k
@@ -96,6 +96,9 @@ contains
 
                         vp(i,j,k)   = vp(i,j,k)   + nudgefac_west(i) * (vprof(k)   - (v0(i,j,k)+cv)) / rdt + &
                                                 & + nudgefac_east(i) * (vprof(k)   - (v0(i,j,k)+cv)) / rdt
+
+                        wp(i,j,k)   = wp(i,j,k)   + nudgefac_west(i) * (0.         - w0(i,j,k)) / rdt + &
+                                                & + nudgefac_east(i) * (0.         - w0(i,j,k)) / rdt
 
                         thlp(i,j,k) = thlp(i,j,k) + nudgefac_west(i) * (thlprof(k) - thl0(i,j,k)) / rdt + &
                                                 & + nudgefac_east(i) * (thlprof(k) - thl0(i,j,k)) / rdt
