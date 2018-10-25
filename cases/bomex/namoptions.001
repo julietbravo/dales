@@ -14,7 +14,7 @@ nsv        =  0
 &DOMAIN
 itot       =  64
 jtot       =  64
-kmax       =  80
+kmax       =  75
 
 
 xsize      =  6400.
