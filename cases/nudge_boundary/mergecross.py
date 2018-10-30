@@ -3,8 +3,8 @@ import numpy as np
 import os
 
 expnr = 1
-base  = 'crossxy.0002'
-#base  = 'crossxz'
+#base  = 'crossxy.0002'
+base  = 'crossxz'
 npx   = 4
 npy   = 1
 itot  = 128
