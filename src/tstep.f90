@@ -124,6 +124,7 @@ subroutine tstep_update
         end do
         call MPI_ALLREDUCE(peclettotl,peclettot,1,MY_REAL,MPI_MAX,comm3d,mpierr)
         dt = min(timee,dt_lim,idtmax,floor(rdt/tres*courant/courtotmax,longint),floor(rdt/tres*peclet/peclettot,longint))
+
         rdt = dble(dt)*tres
         timeleft=timeleft-dt
         dt_lim = timeleft

@@ -7,9 +7,9 @@ base  = 'crossxy.0002'
 #base  = 'crossxz'
 npx   = 4
 npy   = 1
-itot  = 512
-jtot  = 64
-ktot  = 80
+itot  = 128
+jtot  = 32
+ktot  = 75
 
 if 'xz' in base:
     mode = 'xz'
