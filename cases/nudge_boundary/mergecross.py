@@ -32,7 +32,7 @@ for i in range(npx):
 
         # Slices in x and y dimensions
         sx = np.s_[i*chx:(i+1)*chx]
-        sy = np.s_[j*chx:(j+1)*chx]
+        sy = np.s_[j*chy:(j+1)*chy]
 
         if i==0 and j==0:
             # Open first file to copy dimensions et al.
