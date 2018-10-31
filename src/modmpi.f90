@@ -436,7 +436,6 @@ contains
 
   ! Gather a variable l(imax,jmax) along a row (ie. constant myidy)
   ! into              g(itot,jmax) at the processor with myix=0
-
   subroutine gatherrow(l,g,imax,jmax,itot)
     implicit none
 
@@ -473,5 +472,39 @@ contains
     endif
 
   end subroutine gatherrow
+
+  ! Sum a variable l(imax,kmax) along a column (ie. constant myidx)
+  ! into           g(imax,kmax) at all processors
+  subroutine sumcol(l, g, imax, kmax)
+    implicit none
+
+    integer, intent(in) :: imax, kmax
+    real, intent(in)    :: l(imax, kmax)
+    real, intent(out)   :: g(imax, kmax)
+
+    integer  :: i, k, ii
+    real     :: sbuffer(imax * kmax)
+    real     :: rbuffer(imax * kmax)
+
+    ii = 0
+    do k=1,kmax
+      do i=1,imax
+         ii = ii + 1
+         sbuffer(ii) = l(i,k)
+      enddo
+    enddo
+
+    call MPI_ALLREDUCE(sbuffer, rbuffer, imax*kmax, MY_REAL, &
+                       MPI_SUM, commcol, mpierr)
+
+    ii = 0
+    do k=1,kmax
+      do i=1,imax
+        ii = ii + 1
+        g(i,k) = rbuffer(ii)
+      enddo
+    enddo
+
+  end subroutine sumcol
 
 end module

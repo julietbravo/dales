@@ -38,16 +38,19 @@ save
 !NetCDF variables
   integer,parameter :: nvar = 12       !< number of variables in xy, xz and yz crossections
   integer,parameter :: nvar_path = 2   !< number of variables in the xy-path crosssections
+  integer,parameter :: nvar_span = 6   !< number of variables in the spanwise averaged crosssections
 
-  integer :: ncid1 = 0
-  integer,allocatable :: ncid2(:)
-  integer :: ncid3 = 1
-  integer :: ncid4 = 2
+  integer :: ncid1 = 0                 !< xz
+  integer,allocatable :: ncid2(:)      !< xy
+  integer :: ncid3 = 1                 !< yz
+  integer :: ncid4 = 2                 !< xy-path
+  integer :: ncid5 = 3                 !< spanwise xz
 
   integer :: nrec1 = 0
   integer,allocatable :: nrec2(:)
   integer :: nrec3 = 0
   integer :: nrec4 = 0
+  integer :: nrec5 = 0
 
   integer :: crossheight(100)
   integer :: nxy = 0
@@ -58,6 +61,7 @@ save
   character(80) :: fname2 = 'crossxy.xxxx.xxxxyxxx.xxx.nc'
   character(80) :: fname3 = 'crossyz.xxxxyxxx.xxx.nc'
   character(80) :: fname4 = 'crossxy.xxxxyxxx.xxx.nc'
+  character(80) :: fname5 = 'crossxzspan.xxxxyxxx.xxx.nc'
 
   character(80),dimension(nvar,4) :: ncname1
   character(80),dimension(1,4) :: tncname1
@@ -67,6 +71,8 @@ save
   character(80),dimension(1,4) :: tncname3
   character(80),dimension(nvar_path,4) :: ncname4
   character(80),dimension(1,4) :: tncname4
+  character(80),dimension(nvar_span,4) :: ncname5
+  character(80),dimension(1,4) :: tncname5
 
   real    :: dtav
   integer(kind=longint) :: idtav,tnext
@@ -79,6 +85,7 @@ save
   logical :: lxz = .true.   !< switch for doing xz crosssections
   logical :: lyz = .true.   !< switch for doing yz crosssections
   logical :: lpath = .true. !< switch for doing xy path crosssections
+  logical :: lspan = .true. !< switch for doing spanwise avearged xz crosssections
 
 contains
 !> Initializing Crosssection. Read out the namelist, initializing the variables
@@ -91,12 +98,12 @@ contains
     integer :: ierr,k
 
     namelist/NAMCROSSSECTION/ &
-    lcross, lbinary, dtav, crossheight, crossplane, crossortho, lxy, lxz, lyz, lpath
+    lcross, lbinary, dtav, crossheight, crossplane, crossortho, lxy, lxz, lyz, lpath, lspan
 
     allocate(ncid2(kmax),nrec2(kmax))
     crossheight(1)=2
     crossheight(2:100)=-999
-    ncid2(1)=3
+    ncid2(1)=4
     ncid2(2:kmax)=0
     nrec2(1:kmax)=0
 
@@ -119,6 +126,7 @@ contains
     call MPI_BCAST(lxz        ,1,MPI_LOGICAL,0,comm3d,mpierr)
     call MPI_BCAST(lyz        ,1,MPI_LOGICAL,0,comm3d,mpierr)
     call MPI_BCAST(lpath      ,1,MPI_LOGICAL,0,comm3d,mpierr)
+    call MPI_BCAST(lspan      ,1,MPI_LOGICAL,0,comm3d,mpierr)
     call mpi_bcast(lbinary    ,1,mpi_logical,0,comm3d,mpierr)
     call MPI_BCAST(crossheight(1:100),100,MPI_INTEGER,0,comm3d,mpierr)
     call MPI_BCAST(crossplane ,1,MPI_INTEGER,0,comm3d,mpierr)
@@ -236,6 +244,24 @@ contains
         call define_nc( ncid4, nvar_path, ncname4)
       end if
 
+      if (myidy==0 .and. lspan) then
+        fname5(13:20) = cmyid
+        fname5(22:24) = cexpnr
+        call ncinfo(tncname5(1,:), 'time', 'Time', 's', 'time')
+        call ncinfo(ncname5 (1,:), 'u2rxz',   'spanwise avaraged xz crosssection of the resolved u variance',   'm2/s2',   'm0tt')
+        call ncinfo(ncname5 (2,:), 'v2rxz',   'spanwise avaraged xz crosssection of the resolved v variance',   'm2/s2',   't0tt')
+        call ncinfo(ncname5 (3,:), 'w2rxz',   'spanwise avaraged xz crosssection of the resolved w variance',   'm2/s2',   't0mt')
+        call ncinfo(ncname5 (4,:), 'thl2rxz', 'spanwise avaraged xz crosssection of the resolved thl variance', 'K2',      't0tt')
+        call ncinfo(ncname5 (5,:), 'qt2rxz',  'spanwise avaraged xz crosssection of the resolved qt variance',  'kg2/kg2', 't0tt')
+        call ncinfo(ncname5 (6,:), 'ql2rxz',  'spanwise avaraged xz crosssection of the resolved ql variance',  'kg2/kg2', 't0tt')
+        call open_nc(fname5, ncid5, nrec5, n1=imax, n3=kmax)
+        if (nrec5 == 0) then
+          call define_nc( ncid5, 1, tncname5)
+          call writestat_dims_nc(ncid5)
+        end if
+        call define_nc(ncid5, nvar_span, ncname5)
+      end if
+
     end if
 
 
@@ -260,6 +286,7 @@ contains
     if (lxy)   call wrthorz
     if (lyz)   call wrtorth
     if (lpath) call wrtpath
+    if (lspan) call wrtspan
 
   end subroutine crosssection
 
@@ -468,15 +495,13 @@ contains
 
 !> Do the xy-path crosssections and dump them to file
   subroutine wrtpath
-    use modglobal, only : imax,jmax,i1,j1,nsv,cexpnr,ifoutput,rtimee,dzf
+    use modglobal, only : imax,jmax,i1,j1,nsv,rtimee,dzf
     use modfields, only : svm,ql0,rhof
-    use modmpi,    only : cmyid
     use modstat_nc, only : lnetcdf, writestat_nc
     use modmicrodata, only : iqr
     implicit none
 
     integer i,j,k
-    character(40) :: name
     real, allocatable :: lwp(:,:), rwp(:,:), vars(:,:,:)
 
     allocate(lwp(2:i1,2:j1),rwp(2:i1,2:j1))
@@ -611,10 +636,95 @@ contains
 
   end subroutine wrtorth
 
+!> Do the spanwise averaged xz crosssections and dump them to file
+  subroutine wrtspan
+    use modglobal, only : imax, kmax, rtimee
+    use modfields, only : um, vm, wm, thlm, qtm, ql0
+    use modmpi,    only : myidy
+    use modstat_nc, only : lnetcdf, writestat_nc
+    implicit none
+
+    real, allocatable :: var_u(:,:), var_v(:,:), var_w(:,:), var_thl(:,:), var_qt(:,:), var_ql(:,:)
+    real, allocatable :: vars(:,:,:)
+
+    allocate(var_u  (imax, kmax), var_v (imax, kmax), var_w (imax, kmax), &
+           & var_thl(imax, kmax), var_qt(imax, kmax), var_ql(imax, kmax))
+
+    call calc_spanwise_variance(um,   var_u)
+    call calc_spanwise_variance(vm,   var_v)
+    call calc_spanwise_variance(wm,   var_w)
+    call calc_spanwise_variance(thlm, var_thl)
+    call calc_spanwise_variance(qtm,  var_qt)
+    call calc_spanwise_variance(ql0,  var_ql)
+
+    if (lnetcdf .and. myidy==0) then
+      allocate(vars(1:imax, 1:kmax, nvar_span))
+      vars(:,:,1) = var_u
+      vars(:,:,2) = var_v
+      vars(:,:,3) = var_w
+      vars(:,:,4) = var_thl
+      vars(:,:,5) = var_qt
+      vars(:,:,6) = var_ql
+
+      call writestat_nc(ncid5, 1, tncname5, (/rtimee/), nrec5, .true.)
+      call writestat_nc(ncid5, nvar_span, ncname5(1:nvar_span,:), vars, nrec5, imax, kmax)
+      deallocate(vars)
+    end if
+
+    deallocate(var_u, var_v, var_w, var_thl, var_qt, var_ql)
+
+  end subroutine wrtspan
+
+  ! Help routine to calculate spanwise averaged variance
+  subroutine calc_spanwise_variance(field, variance)
+    use modglobal, only : imax, jmax, kmax, i1, j1, k1, ih, jh
+    use modmpi,    only : sumcol, nprocy
+    implicit none
+
+    real, dimension(2-ih:i1+ih,2-jh:j1+jh,k1), intent(in)  :: field
+    real, dimension(imax, kmax),               intent(out) :: variance
+    integer :: i,j,k
+
+    real, allocatable :: mean_local(:,:), mean_global(:,:)
+    allocate(mean_local(imax,kmax), mean_global(imax,kmax))
+
+    mean_local = 0
+
+    ! Calculate spanwise averaged quantities
+    ! Strip ghost cells for MPI routines...
+    do k=1,kmax
+      do j=2,j1
+        do i=1,imax
+          mean_local(i,k) = mean_local(i,k) + field(i+1,j,k)
+        end do
+      end do
+    end do
+
+    call sumcol(mean_local, mean_global, imax, kmax)
+    mean_global = mean_global / (jmax * nprocy)
+
+    ! Calculate variance
+    mean_local=0
+
+    do k=1,kmax
+      do j=2,j1
+        do i=1,imax
+          mean_local(i,k) = mean_local(i,k) + (field(i+1,j,k) - mean_global(i,k))**2.
+        end do
+      end do
+    end do
+
+    call sumcol(mean_local, variance, imax, kmax)
+    variance = variance / (jmax * nprocy)
+
+    deallocate(mean_local, mean_global)
+
+  end subroutine calc_spanwise_variance
+
 !> Clean up when leaving the run
   subroutine exitcrosssection
     use modstat_nc, only : exitstat_nc,lnetcdf
-    use modmpi, only : myid, myidx, myidy
+    use modmpi, only : myidx, myidy
     implicit none
 
     if(lcross .and. lnetcdf) then
@@ -628,6 +738,7 @@ contains
 
       if (myidx==0 .and. lyz)   call exitstat_nc(ncid3)
       if (lpath)                call exitstat_nc(ncid4)
+      if (myidy==0 .and. lspan) call exitstat_nc(ncid5)
     end if
 
   end subroutine exitcrosssection
