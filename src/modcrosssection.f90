@@ -38,7 +38,7 @@ save
 !NetCDF variables
   integer,parameter :: nvar = 12       !< number of variables in xy, xz and yz crossections
   integer,parameter :: nvar_path = 2   !< number of variables in the xy-path crosssections
-  integer,parameter :: nvar_span = 6   !< number of variables in the spanwise averaged crosssections
+  integer,parameter :: nvar_span = 12  !< number of variables in the spanwise averaged crosssections
 
   integer :: ncid1 = 0                 !< xz
   integer,allocatable :: ncid2(:)      !< xy
@@ -247,13 +247,19 @@ contains
       if (myidy==0 .and. lspan) then
         fname5(13:20) = cmyid
         fname5(22:24) = cexpnr
-        call ncinfo(tncname5(1,:), 'time', 'Time', 's', 'time')
-        call ncinfo(ncname5 (1,:), 'u2rxz',   'spanwise avaraged xz crosssection of the resolved u variance',   'm2/s2',   'm0tt')
-        call ncinfo(ncname5 (2,:), 'v2rxz',   'spanwise avaraged xz crosssection of the resolved v variance',   'm2/s2',   't0tt')
-        call ncinfo(ncname5 (3,:), 'w2rxz',   'spanwise avaraged xz crosssection of the resolved w variance',   'm2/s2',   't0mt')
-        call ncinfo(ncname5 (4,:), 'thl2rxz', 'spanwise avaraged xz crosssection of the resolved thl variance', 'K2',      't0tt')
-        call ncinfo(ncname5 (5,:), 'qt2rxz',  'spanwise avaraged xz crosssection of the resolved qt variance',  'kg2/kg2', 't0tt')
-        call ncinfo(ncname5 (6,:), 'ql2rxz',  'spanwise avaraged xz crosssection of the resolved ql variance',  'kg2/kg2', 't0tt')
+        call ncinfo(tncname5(1, :), 'time', 'Time', 's', 'time')
+        call ncinfo(ncname5 (1, :), 'uxz',     'spanwise avaraged xz crosssection of u',                         'm/s',     'm0tt')
+        call ncinfo(ncname5 (2, :), 'vxz',     'spanwise avaraged xz crosssection of v',                         'm/s',     't0tt')
+        call ncinfo(ncname5 (3, :), 'wxz',     'spanwise avaraged xz crosssection of w',                         'm/s',     't0mt')
+        call ncinfo(ncname5 (4, :), 'thlxz',   'spanwise avaraged xz crosssection of thl',                       'K',       't0tt')
+        call ncinfo(ncname5 (5, :), 'qtxz',    'spanwise avaraged xz crosssection of qt',                        'kg/kg',   't0tt')
+        call ncinfo(ncname5 (6, :), 'qlxz',    'spanwise avaraged xz crosssection of ql',                        'kg/kg',   't0tt')
+        call ncinfo(ncname5 (7, :), 'u2rxz',   'spanwise avaraged xz crosssection of the resolved u variance',   'm2/s2',   'm0tt')
+        call ncinfo(ncname5 (8, :), 'v2rxz',   'spanwise avaraged xz crosssection of the resolved v variance',   'm2/s2',   't0tt')
+        call ncinfo(ncname5 (9, :), 'w2rxz',   'spanwise avaraged xz crosssection of the resolved w variance',   'm2/s2',   't0mt')
+        call ncinfo(ncname5 (10,:), 'thl2rxz', 'spanwise avaraged xz crosssection of the resolved thl variance', 'K2',      't0tt')
+        call ncinfo(ncname5 (11,:), 'qt2rxz',  'spanwise avaraged xz crosssection of the resolved qt variance',  'kg2/kg2', 't0tt')
+        call ncinfo(ncname5 (12,:), 'ql2rxz',  'spanwise avaraged xz crosssection of the resolved ql variance',  'kg2/kg2', 't0tt')
         call open_nc(fname5, ncid5, nrec5, n1=imax, n3=kmax)
         if (nrec5 == 0) then
           call define_nc( ncid5, 1, tncname5)
@@ -644,11 +650,21 @@ contains
     use modstat_nc, only : lnetcdf, writestat_nc
     implicit none
 
+    real, allocatable :: mean_u(:,:), mean_v(:,:), mean_w(:,:), mean_thl(:,:), mean_qt(:,:), mean_ql(:,:)
     real, allocatable :: var_u(:,:), var_v(:,:), var_w(:,:), var_thl(:,:), var_qt(:,:), var_ql(:,:)
     real, allocatable :: vars(:,:,:)
 
+    allocate(mean_u  (imax, kmax), mean_v (imax, kmax), mean_w (imax, kmax), &
+           & mean_thl(imax, kmax), mean_qt(imax, kmax), mean_ql(imax, kmax))
     allocate(var_u  (imax, kmax), var_v (imax, kmax), var_w (imax, kmax), &
            & var_thl(imax, kmax), var_qt(imax, kmax), var_ql(imax, kmax))
+
+    call calc_spanwise_mean(um,   mean_u)
+    call calc_spanwise_mean(vm,   mean_v)
+    call calc_spanwise_mean(wm,   mean_w)
+    call calc_spanwise_mean(thlm, mean_thl)
+    call calc_spanwise_mean(qtm,  mean_qt)
+    call calc_spanwise_mean(ql0,  mean_ql)
 
     call calc_spanwise_variance(um,   var_u)
     call calc_spanwise_variance(vm,   var_v)
@@ -659,21 +675,60 @@ contains
 
     if (lnetcdf .and. myidy==0) then
       allocate(vars(1:imax, 1:kmax, nvar_span))
-      vars(:,:,1) = var_u
-      vars(:,:,2) = var_v
-      vars(:,:,3) = var_w
-      vars(:,:,4) = var_thl
-      vars(:,:,5) = var_qt
-      vars(:,:,6) = var_ql
+      vars(:,:,1 ) = mean_u
+      vars(:,:,2 ) = mean_v
+      vars(:,:,3 ) = mean_w
+      vars(:,:,4 ) = mean_thl
+      vars(:,:,5 ) = mean_qt
+      vars(:,:,6 ) = mean_ql
+      vars(:,:,7 ) = var_u
+      vars(:,:,8 ) = var_v
+      vars(:,:,9 ) = var_w
+      vars(:,:,10) = var_thl
+      vars(:,:,11) = var_qt
+      vars(:,:,12) = var_ql
 
       call writestat_nc(ncid5, 1, tncname5, (/rtimee/), nrec5, .true.)
       call writestat_nc(ncid5, nvar_span, ncname5(1:nvar_span,:), vars, nrec5, imax, kmax)
       deallocate(vars)
     end if
 
+    deallocate(mean_u, mean_v, mean_w, mean_thl, mean_qt, mean_ql)
     deallocate(var_u, var_v, var_w, var_thl, var_qt, var_ql)
 
   end subroutine wrtspan
+
+  ! Help routine to calculate spanwise averaged mean
+  subroutine calc_spanwise_mean(field, mean)
+    use modglobal, only : imax, jmax, kmax, i1, j1, k1, ih, jh
+    use modmpi,    only : sumcol, nprocy
+    implicit none
+
+    real, dimension(2-ih:i1+ih,2-jh:j1+jh,k1), intent(in)  :: field
+    real, dimension(imax, kmax),               intent(out) :: mean
+    integer :: i,j,k
+
+    real, allocatable :: mean_local(:,:), mean_global(:,:)
+    allocate(mean_local(imax,kmax), mean_global(imax,kmax))
+
+    mean_local = 0
+
+    ! Calculate spanwise averaged quantities
+    ! Strip ghost cells for MPI routines...
+    do k=1,kmax
+      do j=2,j1
+        do i=1,imax
+          mean_local(i,k) = mean_local(i,k) + field(i+1,j,k)
+        end do
+      end do
+    end do
+
+    call sumcol(mean_local, mean_global, imax, kmax)
+    mean = mean_global / (jmax * nprocy)
+
+    deallocate(mean_local, mean_global)
+
+  end subroutine calc_spanwise_mean
 
   ! Help routine to calculate spanwise averaged variance
   subroutine calc_spanwise_variance(field, variance)
