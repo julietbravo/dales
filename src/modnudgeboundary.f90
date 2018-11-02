@@ -28,11 +28,12 @@ implicit none
 public  :: initnudgeboundary, nudgeboundary, exitnudgeboundary
 save
     logical :: lnudge_boundary = .false.
-    integer :: nudge_mode = 1  ! 1=initial profile, 2=mean profile
+    logical :: lperturb_boundary = .false.
+    integer :: nudge_mode = 2  ! 1=initial profile, 2=mean profile
     real, dimension(:), allocatable :: nudgefac_west,  nudgefac_east
     real, dimension(:), allocatable :: nudgefac_south, nudgefac_north
     real, dimension(:), allocatable :: unudge, vnudge, thlnudge, qtnudge
-    real :: nudge_offset=-1, nudge_width=-1, tau=-1
+    real :: nudge_offset=-1, nudge_width=-1, tau=-1, perturb_ampl=0
 
 contains
     subroutine initnudgeboundary
@@ -46,7 +47,8 @@ contains
         !
         ! Read namelist settings
         !
-        namelist /NAMNUDGEBOUNDARY/ lnudge_boundary, nudge_offset, nudge_width, tau, nudge_mode
+        namelist /NAMNUDGEBOUNDARY/ lnudge_boundary, nudge_offset, nudge_width, tau, nudge_mode, &
+            & lperturb_boundary, perturb_ampl
 
         if (myid==0) then
             open(ifnamopt, file=fname_options, status='old', iostat=ierr)
@@ -58,11 +60,13 @@ contains
             close(ifnamopt)
         end if
 
-        call MPI_BCAST(lnudge_boundary, 1, mpi_logical, 0, comm3d, mpierr)
-        call MPI_BCAST(nudge_mode,      1, mpi_int,     0, comm3d, mpierr)
-        call MPI_BCAST(nudge_offset,    1, my_real,     0, comm3d, mpierr)
-        call MPI_BCAST(nudge_width,     1, my_real,     0, comm3d, mpierr)
-        call MPI_BCAST(tau,             1, my_real,     0, comm3d, mpierr)
+        call MPI_BCAST(lnudge_boundary,   1, mpi_logical, 0, comm3d, mpierr)
+        call MPI_BCAST(lperturb_boundary, 1, mpi_logical, 0, comm3d, mpierr)
+        call MPI_BCAST(nudge_mode,        1, mpi_int,     0, comm3d, mpierr)
+        call MPI_BCAST(nudge_offset,      1, my_real,     0, comm3d, mpierr)
+        call MPI_BCAST(nudge_width,       1, my_real,     0, comm3d, mpierr)
+        call MPI_BCAST(tau,               1, my_real,     0, comm3d, mpierr)
+        call MPI_BCAST(perturb_ampl,      1, my_real,     0, comm3d, mpierr)
 
         if (lnudge_boundary) then
             !
@@ -137,6 +141,17 @@ contains
                     end do
                 end do
             end do
+
+            if (lperturb_boundary) then
+                ! BvS; quick-and-dirty test with perturbing the inflow boundary.
+                do k=1,kmax
+                    do j=2,j1
+                        do i=2,i1
+                            thlp(i,j,k) = thlp(i,j,k) + nudgefac_west(i) * perturb_ampl*(rand(0)-0.5) / rdt
+                        end do
+                    end do
+                end do
+           end if
 
         end if ! lnudge_boundary
     end subroutine nudgeboundary
