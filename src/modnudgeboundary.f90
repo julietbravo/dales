@@ -29,11 +29,12 @@ public  :: initnudgeboundary, nudgeboundary, exitnudgeboundary
 save
     logical :: lnudge_boundary = .false.
     logical :: lperturb_boundary = .false.
-    integer :: nudge_mode = 2  ! 1=initial profile, 2=mean profile
+    integer :: nudge_mode = 2  ! 1=to initial profile, 2=to mean profile, 3=nudge mean
     real, dimension(:), allocatable :: nudgefac_west,  nudgefac_east
     real, dimension(:), allocatable :: nudgefac_south, nudgefac_north
     real, dimension(:), allocatable :: unudge, vnudge, thlnudge, qtnudge
     real :: nudge_offset=-1, nudge_width=-1, tau=-1, perturb_ampl=0
+    integer :: blocksize=1
 
 contains
     subroutine initnudgeboundary
@@ -48,7 +49,7 @@ contains
         ! Read namelist settings
         !
         namelist /NAMNUDGEBOUNDARY/ lnudge_boundary, nudge_offset, nudge_width, tau, nudge_mode, &
-            & lperturb_boundary, perturb_ampl
+            & lperturb_boundary, perturb_ampl, blocksize
 
         if (myid==0) then
             open(ifnamopt, file=fname_options, status='old', iostat=ierr)
@@ -63,6 +64,7 @@ contains
         call MPI_BCAST(lnudge_boundary,   1, mpi_logical, 0, comm3d, mpierr)
         call MPI_BCAST(lperturb_boundary, 1, mpi_logical, 0, comm3d, mpierr)
         call MPI_BCAST(nudge_mode,        1, mpi_int,     0, comm3d, mpierr)
+        call MPI_BCAST(blocksize,         1, mpi_int,     0, comm3d, mpierr)
         call MPI_BCAST(nudge_offset,      1, my_real,     0, comm3d, mpierr)
         call MPI_BCAST(nudge_width,       1, my_real,     0, comm3d, mpierr)
         call MPI_BCAST(tau,               1, my_real,     0, comm3d, mpierr)
@@ -91,14 +93,14 @@ contains
     end subroutine initnudgeboundary
 
     subroutine nudgeboundary
-        use modglobal, only : i1, j1, kmax, rdt, cu, cv, eps1
+        use modglobal, only : i1, j1, imax, jmax, kmax, rdt, cu, cv, eps1
         use modfields, only : u0, up, v0, vp, w0, wp, thl0, thlp, qt0, qtp, &
                             & uprof, vprof, thlprof, qtprof, &
                             & u0av,  v0av,  thl0av,  qt0av
         implicit none
 
-        integer :: i,j,k
-        real :: tau_i
+        integer :: i, j, k, blocki, blockj, subi, subj
+        real :: tau_i, perturbation
 
         if (lnudge_boundary) then
             if (tau <= eps1) then
@@ -145,9 +147,19 @@ contains
             if (lperturb_boundary) then
                 ! BvS; quick-and-dirty test with perturbing the inflow boundary.
                 do k=1,kmax
-                    do j=2,j1
-                        do i=2,i1
-                            thlp(i,j,k) = thlp(i,j,k) + nudgefac_west(i) * perturb_ampl*(rand(0)-0.5) / rdt
+                    do blockj=0, jmax/blocksize-1
+                        do blocki=0, imax/blocksize-1
+                            perturbation = perturb_ampl*(rand(0)-0.5)
+
+                            do subj=0, blocksize-1
+                                do subi=0, blocksize-1
+                                    i = blocki*blocksize + subi + 2
+                                    j = blockj*blocksize + subj + 2
+
+                                    thlp(i,j,k) = thlp(i,j,k) + nudgefac_west(i) * perturbation / rdt
+                                end do
+                            end do
+
                         end do
                     end do
                 end do
