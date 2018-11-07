@@ -33,23 +33,23 @@ save
     real, dimension(:), allocatable :: nudgefac_west,  nudgefac_east
     real, dimension(:), allocatable :: nudgefac_south, nudgefac_north
     real, dimension(:), allocatable :: unudge, vnudge, thlnudge, qtnudge
-    real :: nudge_offset=-1, nudge_width=-1, tau=-1, perturb_ampl=0
-    integer :: blocksize=1
+    real :: nudge_offset=-1, nudge_width=-1, tau=-1, perturb_ampl=0, zmax_perturb=0
+    integer :: blocksize=1, kmax_perturb=0
 
 contains
     subroutine initnudgeboundary
         use modmpi,    only : myid, mpierr, comm3d, mpi_logical, mpi_int, my_real, myidx, myidy, nprocx, nprocy
-        use modglobal, only : ifnamopt, fname_options, i1, j1, k1, dx, dy, xsize, ysize
+        use modglobal, only : ifnamopt, fname_options, i1, j1, k1, dx, dy, xsize, ysize, zf, kmax
         implicit none
 
-        integer :: ierr, i, j
+        integer :: ierr, i, j, k
         real :: x, y
 
         !
         ! Read namelist settings
         !
         namelist /NAMNUDGEBOUNDARY/ lnudge_boundary, nudge_offset, nudge_width, tau, nudge_mode, &
-            & lperturb_boundary, perturb_ampl, blocksize
+            & lperturb_boundary, perturb_ampl, blocksize, zmax_perturb
 
         if (myid==0) then
             open(ifnamopt, file=fname_options, status='old', iostat=ierr)
@@ -69,6 +69,7 @@ contains
         call MPI_BCAST(nudge_width,       1, my_real,     0, comm3d, mpierr)
         call MPI_BCAST(tau,               1, my_real,     0, comm3d, mpierr)
         call MPI_BCAST(perturb_ampl,      1, my_real,     0, comm3d, mpierr)
+        call MPI_BCAST(zmax_perturb,      1, my_real,     0, comm3d, mpierr)
 
         if (lnudge_boundary) then
             !
@@ -89,6 +90,16 @@ contains
                 nudgefac_south(j) = exp(-0.5*((y-       nudge_offset )/nudge_width)**2)
                 nudgefac_north(j) = exp(-0.5*((y-(ysize-nudge_offset))/nudge_width)**2)
             end do
+
+            if (lperturb_boundary) then
+                do k=1,kmax
+                    if (zf(k) > zmax_perturb) then
+                        kmax_perturb = k-1
+                        exit
+                    end if
+                end do
+            end if
+
         end if ! lnudge_boundary
     end subroutine initnudgeboundary
 
@@ -146,7 +157,7 @@ contains
 
             if (lperturb_boundary) then
                 ! BvS; quick-and-dirty test with perturbing the inflow boundary.
-                do k=1,kmax
+                do k=1,kmax_perturb
                     do blockj=0, jmax/blocksize-1
                         do blocki=0, imax/blocksize-1
                             perturbation = perturb_ampl*(rand(0)-0.5)
