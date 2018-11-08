@@ -104,14 +104,14 @@ contains
     end subroutine initnudgeboundary
 
     subroutine nudgeboundary
-        use modglobal, only : i1, j1, imax, jmax, kmax, rdt, cu, cv, eps1
+        use modglobal, only : i1, j1, imax, jmax, kmax, rdt, cu, cv, eps1, zf
         use modfields, only : u0, up, v0, vp, w0, wp, thl0, thlp, qt0, qtp, &
                             & uprof, vprof, thlprof, qtprof, &
                             & u0av,  v0av,  thl0av,  qt0av
         implicit none
 
         integer :: i, j, k, blocki, blockj, subi, subj
-        real :: tau_i, perturbation
+        real :: tau_i, perturbation, zi, thetastr
 
         if (lnudge_boundary) then
             if (tau <= eps1) then
@@ -134,6 +134,7 @@ contains
                 stop "unsupported nudge_mode"
             end if
 
+
             do k=1,kmax
                 do j=2,j1
                     do i=2,i1
@@ -155,9 +156,17 @@ contains
                 end do
             end do
 
+            ! BvS; quick-and-dirty test with perturbing the inflow boundary.
             if (lperturb_boundary) then
-                ! BvS; quick-and-dirty test with perturbing the inflow boundary.
+                ! BvS; even quicker-and-dirtier test using variance scaling laws
+                thetastr = -8e-3 / 0.28        ! BOMEX
+                zi       = zmax_perturb
+
                 do k=1,kmax_perturb
+                    ! Variance scaling from Sorbjan (1989)
+                    perturb_ampl = 2*((2*(zf(k)/zi)**(-2/3.) * (1-(zf(k)/zi))**(4/3.) + 0.94*(zf(k)/zi)**(4/3.) * &
+                        & (1-(zf(k)/zi))**(-2/3.)) * thetastr**2.)**0.5
+
                     do blockj=0, jmax/blocksize-1
                         do blocki=0, imax/blocksize-1
                             perturbation = perturb_ampl*(rand(0)-0.5)
@@ -174,6 +183,28 @@ contains
                         end do
                     end do
                 end do
+
+                stop
+
+                ! BvS; quick-and-dirty test with perturbing the inflow boundary.
+                !do k=1,kmax_perturb
+                !    do blockj=0, jmax/blocksize-1
+                !        do blocki=0, imax/blocksize-1
+                !            perturbation = perturb_ampl*(rand(0)-0.5)
+
+                !            do subj=0, blocksize-1
+                !                do subi=0, blocksize-1
+                !                    i = blocki*blocksize + subi + 2
+                !                    j = blockj*blocksize + subj + 2
+
+                !                    thlp(i,j,k) = thlp(i,j,k) + nudgefac_west(i) * perturbation / rdt
+                !                end do
+                !            end do
+
+                !        end do
+                !    end do
+                !end do
+
            end if
 
         end if ! lnudge_boundary
