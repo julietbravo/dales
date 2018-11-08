@@ -27,9 +27,8 @@ implicit none
 
 public  :: initnudgeboundary, nudgeboundary, exitnudgeboundary
 save
-    logical :: lnudge_boundary = .false.
-    logical :: lperturb_boundary = .false.
-    integer :: nudge_mode = 2  ! 1=to initial profile, 2=to mean profile, 3=nudge mean
+    logical :: lnudge_boundary = .false., lperturb_boundary = .false., lsorbjan=.false.
+    integer :: nudge_mode = 2  ! 1=to initial profile, 2=to mean profile, 3=nudge only mean
     real, dimension(:), allocatable :: nudgefac_west,  nudgefac_east
     real, dimension(:), allocatable :: nudgefac_south, nudgefac_north
     real, dimension(:), allocatable :: unudge, vnudge, thlnudge, qtnudge
@@ -49,7 +48,7 @@ contains
         ! Read namelist settings
         !
         namelist /NAMNUDGEBOUNDARY/ lnudge_boundary, nudge_offset, nudge_width, tau, nudge_mode, &
-            & lperturb_boundary, perturb_ampl, blocksize, zmax_perturb
+            & lperturb_boundary, perturb_ampl, blocksize, zmax_perturb, lsorbjan
 
         if (myid==0) then
             open(ifnamopt, file=fname_options, status='old', iostat=ierr)
@@ -63,6 +62,7 @@ contains
 
         call MPI_BCAST(lnudge_boundary,   1, mpi_logical, 0, comm3d, mpierr)
         call MPI_BCAST(lperturb_boundary, 1, mpi_logical, 0, comm3d, mpierr)
+        call MPI_BCAST(lsorbjan,          1, mpi_logical, 0, comm3d, mpierr)
         call MPI_BCAST(nudge_mode,        1, mpi_int,     0, comm3d, mpierr)
         call MPI_BCAST(blocksize,         1, mpi_int,     0, comm3d, mpierr)
         call MPI_BCAST(nudge_offset,      1, my_real,     0, comm3d, mpierr)
@@ -92,6 +92,9 @@ contains
             end do
 
             if (lperturb_boundary) then
+                !
+                ! Find maximum grid level to which the perturbations are applied
+                !
                 do k=1,kmax
                     if (zf(k) > zmax_perturb) then
                         kmax_perturb = k-1
@@ -134,7 +137,6 @@ contains
                 stop "unsupported nudge_mode"
             end if
 
-
             do k=1,kmax
                 do j=2,j1
                     do i=2,i1
@@ -158,14 +160,16 @@ contains
 
             ! BvS; quick-and-dirty test with perturbing the inflow boundary.
             if (lperturb_boundary) then
-                ! BvS; even quicker-and-dirtier test using variance scaling laws
-                thetastr = -8e-3 / 0.28        ! BOMEX
-                zi       = zmax_perturb
 
                 do k=1,kmax_perturb
-                    ! Variance scaling from Sorbjan (1989)
-                    perturb_ampl = 2*((2*(zf(k)/zi)**(-2/3.) * (1-(zf(k)/zi))**(4/3.) + 0.94*(zf(k)/zi)**(4/3.) * &
-                        & (1-(zf(k)/zi))**(-2/3.)) * thetastr**2.)**0.5
+                    if (lsorbjan) then
+                        ! BvS; even quicker-and-dirtier test using variance scaling from Sorbjan (1989)
+                        thetastr = -8e-3 / 0.28        ! BOMEX
+                        zi       = zmax_perturb
+
+                        perturb_ampl = 2*((2*(zf(k)/zi)**(-2/3.) * (1-(zf(k)/zi))**(4/3.) + 0.94*(zf(k)/zi)**(4/3.) * &
+                            & (1-(zf(k)/zi))**(-2/3.)) * thetastr**2.)**0.5
+                    end if
 
                     do blockj=0, jmax/blocksize-1
                         do blocki=0, imax/blocksize-1
@@ -183,28 +187,6 @@ contains
                         end do
                     end do
                 end do
-
-                stop
-
-                ! BvS; quick-and-dirty test with perturbing the inflow boundary.
-                !do k=1,kmax_perturb
-                !    do blockj=0, jmax/blocksize-1
-                !        do blocki=0, imax/blocksize-1
-                !            perturbation = perturb_ampl*(rand(0)-0.5)
-
-                !            do subj=0, blocksize-1
-                !                do subi=0, blocksize-1
-                !                    i = blocki*blocksize + subi + 2
-                !                    j = blockj*blocksize + subj + 2
-
-                !                    thlp(i,j,k) = thlp(i,j,k) + nudgefac_west(i) * perturbation / rdt
-                !                end do
-                !            end do
-
-                !        end do
-                !    end do
-                !end do
-
            end if
 
         end if ! lnudge_boundary
