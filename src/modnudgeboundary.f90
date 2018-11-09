@@ -27,11 +27,14 @@ implicit none
 
 public  :: initnudgeboundary, nudgeboundary, exitnudgeboundary
 save
-    logical :: lnudge_boundary = .false., lperturb_boundary = .false., lsorbjan=.false.
-    integer :: nudge_mode = 2  ! 1=to initial profile, 2=to mean profile, 3=nudge only mean
+    logical :: lnudge_boundary = .false., lnudge_mean=.false., lperturb_boundary = .false., lsorbjan=.false.
+    integer :: nudge_mode = 2  ! 1=to initial profile, 2=to mean profile
     real, dimension(:), allocatable :: nudgefac_west,  nudgefac_east
     real, dimension(:), allocatable :: nudgefac_south, nudgefac_north
     real, dimension(:), allocatable :: unudge, vnudge, thlnudge, qtnudge
+    real, dimension(:), allocatable :: ub_westl, vb_westl, thlb_westl, qtb_westl
+    real, dimension(:), allocatable :: ub_westg, vb_westg, thlb_westg, qtb_westg
+    real, dimension(:), allocatable :: ut_west, vt_west, thlt_west, qtt_west
     real :: nudge_offset=-1, nudge_width=-1, tau=-1, perturb_ampl=0, zmax_perturb=0
     integer :: blocksize=1, kmax_perturb=0
 
@@ -48,7 +51,7 @@ contains
         ! Read namelist settings
         !
         namelist /NAMNUDGEBOUNDARY/ lnudge_boundary, nudge_offset, nudge_width, tau, nudge_mode, &
-            & lperturb_boundary, perturb_ampl, blocksize, zmax_perturb, lsorbjan
+            & lperturb_boundary, perturb_ampl, blocksize, zmax_perturb, lsorbjan, lnudge_mean
 
         if (myid==0) then
             open(ifnamopt, file=fname_options, status='old', iostat=ierr)
@@ -63,6 +66,7 @@ contains
         call MPI_BCAST(lnudge_boundary,   1, mpi_logical, 0, comm3d, mpierr)
         call MPI_BCAST(lperturb_boundary, 1, mpi_logical, 0, comm3d, mpierr)
         call MPI_BCAST(lsorbjan,          1, mpi_logical, 0, comm3d, mpierr)
+        call MPI_BCAST(lnudge_mean,       1, mpi_logical, 0, comm3d, mpierr)
         call MPI_BCAST(nudge_mode,        1, mpi_int,     0, comm3d, mpierr)
         call MPI_BCAST(blocksize,         1, mpi_int,     0, comm3d, mpierr)
         call MPI_BCAST(nudge_offset,      1, my_real,     0, comm3d, mpierr)
@@ -78,6 +82,9 @@ contains
             allocate( nudgefac_west(2:i1),  nudgefac_east(2:i1) )
             allocate( nudgefac_south(2:j1), nudgefac_north(2:j1) )
             allocate( unudge(k1), vnudge(k1), thlnudge(k1), qtnudge(k1) )
+            allocate( ub_westl(k1), vb_westl(k1), thlb_westl(k1), qtb_westl(k1) )
+            allocate( ub_westg(k1), vb_westg(k1), thlb_westg(k1), qtb_westg(k1) )
+            allocate( ut_west(k1), vt_west(k1), thlt_west(k1), qtt_west(k1) )
 
             do i=2,i1
                 x = myidx * (xsize / nprocx) + (i-1.5)*dx
@@ -111,24 +118,29 @@ contains
         use modfields, only : u0, up, v0, vp, w0, wp, thl0, thlp, qt0, qtp, &
                             & uprof, vprof, thlprof, qtprof, &
                             & u0av,  v0av,  thl0av,  qt0av
+        use modmpi, only    : nprocy, my_real, commcol, mpierr, mpi_sum
         implicit none
 
-        integer :: i, j, k, blocki, blockj, subi, subj
+        integer :: i, j, k, blocki, blockj, subi, subj, n
         real :: tau_i, perturbation, zi, thetastr
 
         if (lnudge_boundary) then
+
             if (tau <= eps1) then
                 tau_i = 1. / rdt  ! Nudge on time scale equal to current time step
             else
                 tau_i = 1. / tau  ! Nudge on specified time scale
             end if
 
-            if (nudge_mode == 1) then
+            !
+            ! Switch between different quantities to nudge to
+            !
+            if (nudge_mode == 1) then       ! Nudge to initial profiles
                 unudge   = uprof
                 vnudge   = vprof
                 thlnudge = thlprof
                 qtnudge  = qtprof
-            else if (nudge_mode == 2) then
+            else if (nudge_mode == 2) then  ! Nudge to mean profiles
                 unudge   = u0av
                 vnudge   = v0av
                 thlnudge = thl0av
@@ -137,26 +149,100 @@ contains
                 stop "unsupported nudge_mode"
             end if
 
-            do k=1,kmax
-                do j=2,j1
-                    do i=2,i1
-                        up(i,j,k)   = up(i,j,k)   + nudgefac_west(i) * tau_i * (unudge(k)   - (u0(i,j,k)+cu)) + &
-                                                & + nudgefac_east(i) * tau_i * (unudge(k)   - (u0(i,j,k)+cu))
+            if (lnudge_mean) then
+                !
+                ! Nudge only the mean state
+                !
 
-                        vp(i,j,k)   = vp(i,j,k)   + nudgefac_west(i) * tau_i * (vnudge(k)   - (v0(i,j,k)+cv)) + &
-                                                & + nudgefac_east(i) * tau_i * (vnudge(k)   - (v0(i,j,k)+cv))
+                ub_westl   = 0
+                vb_westl   = 0
+                thlb_westl = 0
+                qtb_westl  = 0
 
-                        wp(i,j,k)   = wp(i,j,k)   + nudgefac_west(i) * tau_i * (0.          - w0(i,j,k)) + &
-                                                & + nudgefac_east(i) * tau_i * (0.          - w0(i,j,k))
+                n = 0
+                do i=2,i1
+                    if (nudgefac_west(i) > 0.01) then
+                        n = n+1
+                        do k=1,kmax
+                            do j=2,j1
+                                ub_westl  (k) = ub_westl  (k) + u0  (i,j,k)+cu
+                                vb_westl  (k) = vb_westl  (k) + v0  (i,j,k)+cv
+                                thlb_westl(k) = thlb_westl(k) + thl0(i,j,k)
+                                qtb_westl (k) = qtb_westl (k) + qt0 (i,j,k)
+                            end do
+                        end do
+                    end if
+                end do
 
-                        thlp(i,j,k) = thlp(i,j,k) + nudgefac_west(i) * tau_i * (thlnudge(k) - thl0(i,j,k)) + &
-                                                & + nudgefac_east(i) * tau_i * (thlnudge(k) - thl0(i,j,k))
+                if (n > 0) then
 
-                        qtp(i,j,k)  = qtp(i,j,k)  + nudgefac_west(i) * tau_i * (qtnudge(k)  - qt0(i,j,k) ) + &
-                                                & + nudgefac_east(i) * tau_i * (qtnudge(k)  - qt0(i,j,k) )
+                    ub_westl   = ub_westl   / (n*jmax)
+                    vb_westl   = vb_westl   / (n*jmax)
+                    thlb_westl = thlb_westl / (n*jmax)
+                    qtb_westl  = qtb_westl  / (n*jmax)
+
+                    !
+                    ! Calculate MPI mean in y-direction
+                    ! TO-DO: write routine in modmpi
+                    !
+                    call MPI_ALLREDUCE(ub_westl,   ub_westg,   kmax, my_real, mpi_sum, commcol, mpierr)
+                    call MPI_ALLREDUCE(vb_westl,   vb_westg,   kmax, my_real, mpi_sum, commcol, mpierr)
+                    call MPI_ALLREDUCE(thlb_westl, thlb_westg, kmax, my_real, mpi_sum, commcol, mpierr)
+                    call MPI_ALLREDUCE(qtb_westl,  qtb_westg,  kmax, my_real, mpi_sum, commcol, mpierr)
+
+                    ub_westg   = ub_westg   / nprocy
+                    vb_westg   = vb_westg   / nprocy
+                    thlb_westg = thlb_westg / nprocy
+                    qtb_westg  = qtb_westg  / nprocy
+
+                    !
+                    ! Calculate mean tendency
+                    !
+                    ut_west   = tau_i * (unudge   - ub_westg)
+                    vt_west   = tau_i * (vnudge   - vb_westg)
+                    thlt_west = tau_i * (thlnudge - thlb_westg)
+                    qtt_west  = tau_i * (qtnudge  - qtb_westg)
+
+                    !
+                    ! Apply tendency
+                    !
+                    do k=1,kmax
+                        do j=2,j1
+                            do i=2,i1
+                                up(i,j,k)   = up(i,j,k)   + nudgefac_west(i) * ut_west  (k)
+                                vp(i,j,k)   = vp(i,j,k)   + nudgefac_west(i) * vt_west  (k)
+                                thlp(i,j,k) = thlp(i,j,k) + nudgefac_west(i) * thlt_west(k)
+                                qtp(i,j,k)  = qtp(i,j,k)  + nudgefac_west(i) * qtt_west (k)
+                            end do
+                        end do
+                    end do
+
+                end if ! n>0
+
+            else
+
+                do k=1,kmax
+                    do j=2,j1
+                        do i=2,i1
+                            up(i,j,k)   = up(i,j,k)   + nudgefac_west(i) * tau_i * (unudge(k)   - (u0(i,j,k)+cu)) + &
+                                                    & + nudgefac_east(i) * tau_i * (unudge(k)   - (u0(i,j,k)+cu))
+
+                            vp(i,j,k)   = vp(i,j,k)   + nudgefac_west(i) * tau_i * (vnudge(k)   - (v0(i,j,k)+cv)) + &
+                                                    & + nudgefac_east(i) * tau_i * (vnudge(k)   - (v0(i,j,k)+cv))
+
+                            wp(i,j,k)   = wp(i,j,k)   + nudgefac_west(i) * tau_i * (0.          - w0(i,j,k)) + &
+                                                    & + nudgefac_east(i) * tau_i * (0.          - w0(i,j,k))
+
+                            thlp(i,j,k) = thlp(i,j,k) + nudgefac_west(i) * tau_i * (thlnudge(k) - thl0(i,j,k)) + &
+                                                    & + nudgefac_east(i) * tau_i * (thlnudge(k) - thl0(i,j,k))
+
+                            qtp(i,j,k)  = qtp(i,j,k)  + nudgefac_west(i) * tau_i * (qtnudge(k)  - qt0(i,j,k) ) + &
+                                                    & + nudgefac_east(i) * tau_i * (qtnudge(k)  - qt0(i,j,k) )
+                        end do
                     end do
                 end do
-            end do
+
+            end if
 
             ! BvS; quick-and-dirty test with perturbing the inflow boundary.
             if (lperturb_boundary) then
