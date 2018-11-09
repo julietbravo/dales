@@ -30,7 +30,7 @@ save
     logical :: lnudge_boundary = .false., lperturb_boundary = .false., lsorbjan=.false.
     integer :: nudge_mode = 2  ! 1=to initial profile, 2=to mean profile, 3=nudge only mean
     real, dimension(:), allocatable :: nudgefac_west,  nudgefac_east
-    real, dimension(:), allocatable :: nudgefac_south, nudgefac_north
+    real, dimension(:), allocatable :: perturbfac_west,  perturbfac_east
     real, dimension(:), allocatable :: unudge, vnudge, thlnudge, qtnudge
     real :: nudge_offset=-1, nudge_width=-1, tau=-1, perturb_ampl=0, zmax_perturb=0
     integer :: blocksize=1, kmax_perturb=0
@@ -73,23 +73,26 @@ contains
 
         if (lnudge_boundary) then
             !
-            ! Init and calculate nudge factors
+            ! Init and calculate nudge and perturb factors
             !
             allocate( nudgefac_west(2:i1),  nudgefac_east(2:i1) )
-            allocate( nudgefac_south(2:j1), nudgefac_north(2:j1) )
+            allocate( perturbfac_west(2:i1),  perturbfac_east(2:i1) )
             allocate( unudge(k1), vnudge(k1), thlnudge(k1), qtnudge(k1) )
 
             do i=2,i1
                 x = myidx * (xsize / nprocx) + (i-1.5)*dx
-                nudgefac_west(i) = exp(-0.5*((x-       nudge_offset )/nudge_width)**2)
-                nudgefac_east(i) = exp(-0.5*((x-(xsize-nudge_offset))/nudge_width)**2)
+                nudgefac_west(i)   = exp(-0.5*((x-       nudge_offset )/nudge_width)**2)
+                nudgefac_east(i)   = exp(-0.5*((x-(xsize-nudge_offset))/nudge_width)**2)
+
+                perturbfac_west(i) = exp(-0.5*((x-       2*nudge_offset )/nudge_width)**2)
+                perturbfac_east(i) = exp(-0.5*((x-(xsize-2*nudge_offset))/nudge_width)**2)
             end do
 
-            do j=2,j1
-                y = myidy * (ysize / nprocy) + (j-1.5)*dy
-                nudgefac_south(j) = exp(-0.5*((y-       nudge_offset )/nudge_width)**2)
-                nudgefac_north(j) = exp(-0.5*((y-(ysize-nudge_offset))/nudge_width)**2)
-            end do
+            !do j=2,j1
+            !    y = myidy * (ysize / nprocy) + (j-1.5)*dy
+            !    nudgefac_south(j) = exp(-0.5*((y-       nudge_offset )/nudge_width)**2)
+            !    nudgefac_north(j) = exp(-0.5*((y-(ysize-nudge_offset))/nudge_width)**2)
+            !end do
 
             if (lperturb_boundary) then
                 !
@@ -180,7 +183,7 @@ contains
                                     i = blocki*blocksize + subi + 2
                                     j = blockj*blocksize + subj + 2
 
-                                    thlp(i,j,k) = thlp(i,j,k) + nudgefac_west(i) * perturbation / rdt
+                                    thlp(i,j,k) = thlp(i,j,k) + perturbfac_west(i) * perturbation / rdt
                                 end do
                             end do
 
@@ -195,7 +198,7 @@ contains
     subroutine exitnudgeboundary
         implicit none
         if (lnudge_boundary) then
-            deallocate( nudgefac_west, nudgefac_east, nudgefac_south, nudgefac_north )
+            deallocate( nudgefac_west, nudgefac_east, perturbfac_west, perturbfac_east )
             deallocate( unudge, vnudge, thlnudge, qtnudge)
         end if
     end subroutine exitnudgeboundary
