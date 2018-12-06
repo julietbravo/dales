@@ -28,27 +28,26 @@ implicit none
 public  :: initnudgeboundary, nudgeboundary, exitnudgeboundary
 save
     logical :: lnudge_boundary = .false., lperturb_boundary = .false., lsorbjan=.false.
-    integer :: nudge_mode = 2  ! 1=to initial profile, 2=to mean profile, 3=nudge only mean
-    real, dimension(:), allocatable :: nudgefac_west,  nudgefac_east
-    real, dimension(:), allocatable :: perturbfac_west,  perturbfac_east
-    real, dimension(:), allocatable :: unudge, vnudge, thlnudge, qtnudge
-    real :: nudge_offset=-1, nudge_width=-1, tau=-1, perturb_ampl=0, zmax_perturb=0
+    integer :: nudge_mode = 2  ! 1=to initial profile, 2=to mean profile, 3=input
+    real, dimension(:), allocatable :: nudgefac_west,  nudgefac_east, nudgefac_south,  nudgefac_north
+    real, dimension(:), allocatable :: perturbfac_west,  perturbfac_east, perturbfac_south,  perturbfac_north
+    real, dimension(:), allocatable :: unudge, vnudge, thlnudge, qtnudge                        ! For nudging to profile
+    real, dimension(:,:,:,:), allocatable :: unudge_inp, vnudge_inp, thlnudge_inp, qtnudge_inp  ! Input for nudging to external field
+    real :: nudge_offset=-1, nudge_width=-1, tau=-1, perturb_ampl=0, zmax_perturb=0, dt_input_lbc=-1
     integer :: blocksize=1, kmax_perturb=0
 
 contains
     subroutine initnudgeboundary
         use modmpi,    only : myid, mpierr, comm3d, mpi_logical, mpi_int, my_real, myidx, myidy, nprocx, nprocy
-        use modglobal, only : ifnamopt, fname_options, i1, j1, k1, dx, dy, xsize, ysize, zf, kmax
+        use modglobal, only : ifnamopt, fname_options, i1, j1, k1, ih, jh, dx, dy, xsize, ysize, zf, kmax
         implicit none
 
         integer :: ierr, i, j, k
         real :: x, y
 
-        !
         ! Read namelist settings
-        !
         namelist /NAMNUDGEBOUNDARY/ lnudge_boundary, nudge_offset, nudge_width, tau, nudge_mode, &
-            & lperturb_boundary, perturb_ampl, blocksize, zmax_perturb, lsorbjan
+            & lperturb_boundary, perturb_ampl, blocksize, zmax_perturb, lsorbjan, dt_input_lbc
 
         if (myid==0) then
             open(ifnamopt, file=fname_options, status='old', iostat=ierr)
@@ -70,50 +69,116 @@ contains
         call MPI_BCAST(tau,               1, my_real,     0, comm3d, mpierr)
         call MPI_BCAST(perturb_ampl,      1, my_real,     0, comm3d, mpierr)
         call MPI_BCAST(zmax_perturb,      1, my_real,     0, comm3d, mpierr)
+        call MPI_BCAST(dt_input_lbc,      1, my_real,     0, comm3d, mpierr)
 
         if (lnudge_boundary) then
-            !
             ! Init and calculate nudge and perturb factors
-            !
             allocate( nudgefac_west(2:i1),  nudgefac_east(2:i1) )
+            allocate( nudgefac_south(2:j1),  nudgefac_north(2:j1) )
             allocate( perturbfac_west(2:i1),  perturbfac_east(2:i1) )
-            allocate( unudge(k1), vnudge(k1), thlnudge(k1), qtnudge(k1) )
+            allocate( perturbfac_south(2:i1),  perturbfac_north(2:i1) )
 
+            ! Nudge boundaries to single profile
+            if (nudge_mode < 3) then
+                allocate( unudge(k1), vnudge(k1), thlnudge(k1), qtnudge(k1) )
+            end if
+
+            ! Nudge boundaries to input (3D) data
+            if (nudge_mode == 3) then
+                allocate(unudge_inp  (2-ih:i1+ih, 2-jh:j1+jh, k1, 2))
+                allocate(vnudge_inp  (2-ih:i1+ih, 2-jh:j1+jh, k1, 2))
+                allocate(thlnudge_inp(2-ih:i1+ih, 2-jh:j1+jh, k1, 2))
+                allocate(qtnudge_inp (2-ih:i1+ih, 2-jh:j1+jh, k1, 2))
+
+                ! Read the first two input times
+                call read_new_LBCs(0.)
+                call read_new_LBCs(dt_input_lbc)
+            end if
+
+            ! Calculate the nudge factors
             do i=2,i1
                 x = myidx * (xsize / nprocx) + (i-1.5)*dx
                 nudgefac_west(i)   = exp(-0.5*((x-       nudge_offset )/nudge_width)**2)
                 nudgefac_east(i)   = exp(-0.5*((x-(xsize-nudge_offset))/nudge_width)**2)
-
-                perturbfac_west(i) = exp(-0.5*((x-       2*nudge_offset )/nudge_width)**2)
-                perturbfac_east(i) = exp(-0.5*((x-(xsize-2*nudge_offset))/nudge_width)**2)
+            end do
+            do j=2,j1
+                y = myidy * (ysize / nprocy) + (j-1.5)*dy
+                nudgefac_south(j)  = exp(-0.5*((y-       nudge_offset )/nudge_width)**2)
+                nudgefac_north(j)  = exp(-0.5*((y-(ysize-nudge_offset))/nudge_width)**2)
             end do
 
-            !do j=2,j1
-            !    y = myidy * (ysize / nprocy) + (j-1.5)*dy
-            !    nudgefac_south(j) = exp(-0.5*((y-       nudge_offset )/nudge_width)**2)
-            !    nudgefac_north(j) = exp(-0.5*((y-(ysize-nudge_offset))/nudge_width)**2)
-            !end do
-
             if (lperturb_boundary) then
-                !
                 ! Find maximum grid level to which the perturbations are applied
-                !
                 do k=1,kmax
                     if (zf(k) > zmax_perturb) then
                         kmax_perturb = k-1
                         exit
                     end if
                 end do
+
+                ! Calculate the perturbation factors
+                do i=2,i1
+                    x = myidx * (xsize / nprocx) + (i-1.5)*dx
+                    perturbfac_west(i) = exp(-0.5*((x-       2*nudge_offset )/nudge_width)**2)
+                    perturbfac_east(i) = exp(-0.5*((x-(xsize-2*nudge_offset))/nudge_width)**2)
+                end do
+                do j=2,j1
+                    y = myidy * (ysize / nprocy) + (j-1.5)*dy
+                    perturbfac_west(j) = exp(-0.5*((y-       2*nudge_offset )/nudge_width)**2)
+                    perturbfac_east(j) = exp(-0.5*((y-(ysize-2*nudge_offset))/nudge_width)**2)
+                end do
             end if
 
         end if ! lnudge_boundary
     end subroutine initnudgeboundary
+
+    subroutine read_new_LBCs(time)
+        use modglobal, only : i1, j1, k1, iexpnr, itot, jtot, kmax
+        use modmpi, only : myidx, myidy, nprocx, nprocy
+
+        implicit none
+        real, intent(in) :: time !< Input: time to read (seconds)
+        integer :: ihour, imin, k
+        character(80) :: input_file = 'lbc___h__m_x___y___.___'
+
+        ! Only the MPI tasks at the domain edges read the LBCs:
+        if (myidx == 0 .or. myidx == nprocx-1 .or. myidy == 0 .or. myidy == nprocy-1) then
+
+            ! File name to read
+            ihour = floor(time/3600)
+            imin  = floor((time-ihour*3600)/3600.*60.)
+            write(input_file( 4: 6), '(i3.3)') ihour
+            write(input_file( 8: 9), '(i2.2)') imin
+            write(input_file(13:15), '(i3.3)') myidx
+            write(input_file(17:19), '(i3.3)') myidy
+            write(input_file(21:23), '(i3.3)') iexpnr
+            
+            print*,'Processing ', input_file
+
+            ! Copy t+1 to t
+            unudge_inp  (:,:,:,1) = unudge_inp  (:,:,:,2)
+            vnudge_inp  (:,:,:,1) = vnudge_inp  (:,:,:,2)
+            thlnudge_inp(:,:,:,1) = thlnudge_inp(:,:,:,2)
+            qtnudge_inp (:,:,:,1) = qtnudge_inp (:,:,:,2)
+
+            ! Read new LBC for t+1
+            open(666, file=input_file, form='unformatted', status='unknown', action='read', access='stream')
+            read(666) unudge_inp  (2:i1,2:j1,1:kmax,2)
+            read(666) vnudge_inp  (2:i1,2:j1,1:kmax,2)
+            read(666) thlnudge_inp(2:i1,2:j1,1:kmax,2)
+            read(666) qtnudge_inp (2:i1,2:j1,1:kmax,2)
+            close(666)
+
+        end if
+
+    end subroutine read_new_boundary
 
     subroutine nudgeboundary
         use modglobal, only : i1, j1, imax, jmax, kmax, rdt, cu, cv, eps1, zf
         use modfields, only : u0, up, v0, vp, w0, wp, thl0, thlp, qt0, qtp, &
                             & uprof, vprof, thlprof, qtprof, &
                             & u0av,  v0av,  thl0av,  qt0av
+        use modmpi, only    : myidx, myidy, nprocx, nprocy
         implicit none
 
         integer :: i, j, k, blocki, blockj, subi, subj
@@ -126,6 +191,7 @@ contains
                 tau_i = 1. / tau  ! Nudge on specified time scale
             end if
 
+            ! Select which profile to nudge to
             if (nudge_mode == 1) then
                 unudge   = uprof
                 vnudge   = vprof
@@ -136,30 +202,82 @@ contains
                 vnudge   = v0av
                 thlnudge = thl0av
                 qtnudge  = qt0av
-            else
-                stop "unsupported nudge_mode"
             end if
 
-            do k=1,kmax
-                do j=2,j1
-                    do i=2,i1
-                        up(i,j,k)   = up(i,j,k)   + nudgefac_west(i) * tau_i * (unudge(k)   - (u0(i,j,k)+cu)) + &
-                                                & + nudgefac_east(i) * tau_i * (unudge(k)   - (u0(i,j,k)+cu))
+            ! Nudge boundary to single profile
+            !if (nudge_mode < 3) then
+            !    do k=1,kmax
+            !        do j=2,j1
+            !            do i=2,i1
+            !                !up(i,j,k)   = up(i,j,k)   + nudgefac_west(i) * tau_i * (unudge(k)   - (u0(i,j,k)+cu)) + &
+            !                !                        & + nudgefac_east(i) * tau_i * (unudge(k)   - (u0(i,j,k)+cu))
 
-                        vp(i,j,k)   = vp(i,j,k)   + nudgefac_west(i) * tau_i * (vnudge(k)   - (v0(i,j,k)+cv)) + &
-                                                & + nudgefac_east(i) * tau_i * (vnudge(k)   - (v0(i,j,k)+cv))
+            !                !vp(i,j,k)   = vp(i,j,k)   + nudgefac_west(i) * tau_i * (vnudge(k)   - (v0(i,j,k)+cv)) + &
+            !                !                        & + nudgefac_east(i) * tau_i * (vnudge(k)   - (v0(i,j,k)+cv))
 
-                        wp(i,j,k)   = wp(i,j,k)   + nudgefac_west(i) * tau_i * (0.          - w0(i,j,k)) + &
-                                                & + nudgefac_east(i) * tau_i * (0.          - w0(i,j,k))
+            !                !wp(i,j,k)   = wp(i,j,k)   + nudgefac_west(i) * tau_i * (0.          - w0(i,j,k)) + &
+            !                !                        & + nudgefac_east(i) * tau_i * (0.          - w0(i,j,k))
 
-                        thlp(i,j,k) = thlp(i,j,k) + nudgefac_west(i) * tau_i * (thlnudge(k) - thl0(i,j,k)) + &
-                                                & + nudgefac_east(i) * tau_i * (thlnudge(k) - thl0(i,j,k))
+            !                !thlp(i,j,k) = thlp(i,j,k) + nudgefac_west(i) * tau_i * (thlnudge_inp(i,j,k,1) - thl0(i,j,k)) + &
+            !                !                        & + nudgefac_east(i) * tau_i * (thlnudge_inp(i,j,k,1) - thl0(i,j,k))
 
-                        qtp(i,j,k)  = qtp(i,j,k)  + nudgefac_west(i) * tau_i * (qtnudge(k)  - qt0(i,j,k) ) + &
-                                                & + nudgefac_east(i) * tau_i * (qtnudge(k)  - qt0(i,j,k) )
+            !                !qtp(i,j,k)  = qtp(i,j,k)  + nudgefac_west(i) * tau_i * (qtnudge(k)  - qt0(i,j,k) ) + &
+            !                !                        & + nudgefac_east(i) * tau_i * (qtnudge(k)  - qt0(i,j,k) )
+            !            end do
+            !        end do
+            !    end do
+            !end if
+
+            ! Nudge boundary to input data
+            if (nudge_mode == 3) then
+
+                ! Zonal nudging
+                if (myidx == 0 .or. myidx == nprocx-1) then
+                    do k=1,kmax
+                        do j=2,j1
+                            do i=2,i1
+                                up(i,j,k)   = up(i,j,k)   + nudgefac_west(i) * tau_i * (unudge_inp(i,j,k,1)   - (u0(i,j,k)+cu)) + &
+                                                        & + nudgefac_east(i) * tau_i * (unudge_inp(i,j,k,1)   - (u0(i,j,k)+cu))
+
+                                vp(i,j,k)   = vp(i,j,k)   + nudgefac_west(i) * tau_i * (vnudge_inp(i,j,k,1)   - (v0(i,j,k)+cv)) + &
+                                                        & + nudgefac_east(i) * tau_i * (vnudge_inp(i,j,k,1)   - (v0(i,j,k)+cv))
+
+                                wp(i,j,k)   = wp(i,j,k)   + nudgefac_west(i) * tau_i * (0. - w0(i,j,k)) + &
+                                                        & + nudgefac_east(i) * tau_i * (0. - w0(i,j,k))
+
+                                thlp(i,j,k) = thlp(i,j,k) + nudgefac_west(i) * tau_i * (thlnudge_inp(i,j,k,1) - thl0(i,j,k)) + &
+                                                        & + nudgefac_east(i) * tau_i * (thlnudge_inp(i,j,k,1) - thl0(i,j,k))
+
+                                qtp(i,j,k)  = qtp(i,j,k)  + nudgefac_west(i) * tau_i * (qtnudge_inp(i,j,k,1)  - qt0(i,j,k) ) + &
+                                                        & + nudgefac_east(i) * tau_i * (qtnudge_inp(i,j,k,1)  - qt0(i,j,k) )
+                            end do
+                        end do
                     end do
-                end do
-            end do
+                end if
+
+                if (myidy == 0 .or. myidy == nprocy-1) then
+                    do k=1,kmax
+                        do j=2,j1
+                            do i=2,i1
+                                up(i,j,k)   = up(i,j,k)   + nudgefac_south(j) * tau_i * (unudge_inp(i,j,k,1)   - (u0(i,j,k)+cu)) + &
+                                                        & + nudgefac_north(j) * tau_i * (unudge_inp(i,j,k,1)   - (u0(i,j,k)+cu))
+
+                                vp(i,j,k)   = vp(i,j,k)   + nudgefac_south(j) * tau_i * (vnudge_inp(i,j,k,1)   - (v0(i,j,k)+cv)) + &
+                                                        & + nudgefac_north(j) * tau_i * (vnudge_inp(i,j,k,1)   - (v0(i,j,k)+cv))
+
+                                wp(i,j,k)   = wp(i,j,k)   + nudgefac_south(j) * tau_i * (0. - w0(i,j,k)) + &
+                                                        & + nudgefac_north(j) * tau_i * (0. - w0(i,j,k))
+
+                                thlp(i,j,k) = thlp(i,j,k) + nudgefac_south(j) * tau_i * (thlnudge_inp(i,j,k,1) - thl0(i,j,k)) + &
+                                                        & + nudgefac_north(j) * tau_i * (thlnudge_inp(i,j,k,1) - thl0(i,j,k))
+
+                                qtp(i,j,k)  = qtp(i,j,k)  + nudgefac_south(j) * tau_i * (qtnudge_inp(i,j,k,1)  - qt0(i,j,k) ) + &
+                                                        & + nudgefac_north(j) * tau_i * (qtnudge_inp(i,j,k,1)  - qt0(i,j,k) )
+                            end do
+                        end do
+                    end do
+                end if
+            end if
 
             ! BvS; quick-and-dirty test with perturbing the inflow boundary.
             if (lperturb_boundary) then
@@ -198,8 +316,11 @@ contains
     subroutine exitnudgeboundary
         implicit none
         if (lnudge_boundary) then
-            deallocate( nudgefac_west, nudgefac_east, perturbfac_west, perturbfac_east )
-            deallocate( unudge, vnudge, thlnudge, qtnudge)
+            deallocate( nudgefac_west, nudgefac_east, nudgefac_south, nudgefac_north )
+            deallocate( perturbfac_west, perturbfac_east, perturbfac_south, perturbfac_north )
+
+            if (nudge_mode  < 3) deallocate( unudge, vnudge, thlnudge, qtnudge )
+            if (nudge_mode == 3) deallocate( unudge_inp, vnudge_inp, thlnudge_inp, qtnudge_inp )
         end if
     end subroutine exitnudgeboundary
 
