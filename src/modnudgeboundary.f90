@@ -34,12 +34,14 @@ save
     real, dimension(:), allocatable :: unudge, vnudge, thlnudge, qtnudge                        ! For nudging to profile
     real, dimension(:,:,:,:), allocatable :: unudge_inp, vnudge_inp, thlnudge_inp, qtnudge_inp  ! Input for nudging to external field
     real :: nudge_offset=-1, nudge_width=-1, tau=-1, perturb_ampl=0, zmax_perturb=0, dt_input_lbc=-1
-    integer :: blocksize=1, kmax_perturb=0
+    integer :: blocksize=1, kmax_perturb=0, lbc_index=1
+
 
 contains
     subroutine initnudgeboundary
         use modmpi,    only : myid, mpierr, comm3d, mpi_logical, mpi_int, my_real, myidx, myidy, nprocx, nprocy
         use modglobal, only : ifnamopt, fname_options, i1, j1, k1, ih, jh, dx, dy, xsize, ysize, zf, kmax
+        use modboundary, only : boundary
         implicit none
 
         integer :: ierr, i, j, k
@@ -85,6 +87,8 @@ contains
 
             ! Nudge boundaries to input (3D) data
             if (nudge_mode == 3) then
+                ! Two time steps (last dim) are kept in memory,
+                ! and are linearly interpolated in time
                 allocate(unudge_inp  (2-ih:i1+ih, 2-jh:j1+jh, k1, 2))
                 allocate(vnudge_inp  (2-ih:i1+ih, 2-jh:j1+jh, k1, 2))
                 allocate(thlnudge_inp(2-ih:i1+ih, 2-jh:j1+jh, k1, 2))
@@ -93,6 +97,13 @@ contains
                 ! Read the first two input times
                 call read_new_LBCs(0.)
                 call read_new_LBCs(dt_input_lbc)
+                lbc_index = 1
+
+                ! Hack - read full initial 3D field
+                call read_initial_fields
+
+                ! Make sure the ghost cells are set correctly..
+                call boundary
             end if
 
             ! Calculate the nudge factors
@@ -132,6 +143,37 @@ contains
         end if ! lnudge_boundary
     end subroutine initnudgeboundary
 
+
+    subroutine read_initial_fields
+        ! BvS - this should really go somewhere else, probably modstartup...
+        use modfields, only : u0, v0, um, vm, thlm, thl0, qtm, qt0
+        use modglobal, only : i1, j1, k1, iexpnr, itot, jtot, kmax
+        use modmpi, only : myidx, myidy, nprocx, nprocy
+
+        implicit none
+
+        character(80) :: input_file = 'lbc000h00m_x___y___.___'
+        write(input_file(13:15), '(i3.3)') myidx
+        write(input_file(17:19), '(i3.3)') myidy
+        write(input_file(21:23), '(i3.3)') iexpnr
+
+        print*,'Reading initial field: ', input_file
+
+        open(666, file=input_file, form='unformatted', status='unknown', action='read', access='stream')
+        read(666) u0  (2:i1,2:j1,1:kmax)
+        read(666) v0  (2:i1,2:j1,1:kmax)
+        read(666) thl0(2:i1,2:j1,1:kmax)
+        read(666) qt0 (2:i1,2:j1,1:kmax)
+        close(666)
+
+        um  (2:i1,2:j1,1:kmax) = u0  (2:i1,2:j1,1:kmax)
+        vm  (2:i1,2:j1,1:kmax) = v0  (2:i1,2:j1,1:kmax)
+        thlm(2:i1,2:j1,1:kmax) = thl0(2:i1,2:j1,1:kmax)
+        qtm (2:i1,2:j1,1:kmax) = qt0 (2:i1,2:j1,1:kmax)
+
+    end subroutine read_initial_fields
+
+
     subroutine read_new_LBCs(time)
         use modglobal, only : i1, j1, k1, iexpnr, itot, jtot, kmax
         use modmpi, only : myidx, myidy, nprocx, nprocy
@@ -153,7 +195,7 @@ contains
             write(input_file(17:19), '(i3.3)') myidy
             write(input_file(21:23), '(i3.3)') iexpnr
             
-            print*,'Processing ', input_file
+            print*,'Processing LBC: ', input_file
 
             ! Copy t+1 to t
             unudge_inp  (:,:,:,1) = unudge_inp  (:,:,:,2)
@@ -171,10 +213,11 @@ contains
 
         end if
 
-    end subroutine read_new_boundary
+    end subroutine read_new_LBCs
+
 
     subroutine nudgeboundary
-        use modglobal, only : i1, j1, imax, jmax, kmax, rdt, cu, cv, eps1, zf
+        use modglobal, only : i1, j1, imax, jmax, kmax, rdt, cu, cv, eps1, zf, rtimee
         use modfields, only : u0, up, v0, vp, w0, wp, thl0, thlp, qt0, qtp, &
                             & uprof, vprof, thlprof, qtprof, &
                             & u0av,  v0av,  thl0av,  qt0av
@@ -182,9 +225,11 @@ contains
         implicit none
 
         integer :: i, j, k, blocki, blockj, subi, subj
-        real :: tau_i, perturbation, zi, thetastr
+        real :: tau_i, perturbation, zi, thetastr, t0, t1, tfac
+        real :: unudge_int, vnudge_int, wnudge_int, tnudge_int, qnudge_int
 
         if (lnudge_boundary) then
+
             if (tau <= eps1) then
                 tau_i = 1. / rdt  ! Nudge on time scale equal to current time step
             else
@@ -231,25 +276,45 @@ contains
             ! Nudge boundary to input data
             if (nudge_mode == 3) then
 
+                ! Read new LBC (if required)
+                if (rtimee > lbc_index * dt_input_lbc) then
+                    call read_new_LBCs(rtimee)
+                    lbc_index = lbc_index + 1
+                end if
+
+                ! Calculate time interpolation factor
+                t0   = (lbc_index - 1) * dt_input_lbc    ! Time of previous boundary
+                t1   = (lbc_index    ) * dt_input_lbc    ! Time of next boundary
+                tfac = 1.-(rtimee - t0) / (t1 - t0)      ! Interpolation factor
+
                 ! Zonal nudging
                 if (myidx == 0 .or. myidx == nprocx-1) then
                     do k=1,kmax
                         do j=2,j1
                             do i=2,i1
-                                up(i,j,k)   = up(i,j,k)   + nudgefac_west(i) * tau_i * (unudge_inp(i,j,k,1)   - (u0(i,j,k)+cu)) + &
-                                                        & + nudgefac_east(i) * tau_i * (unudge_inp(i,j,k,1)   - (u0(i,j,k)+cu))
 
-                                vp(i,j,k)   = vp(i,j,k)   + nudgefac_west(i) * tau_i * (vnudge_inp(i,j,k,1)   - (v0(i,j,k)+cv)) + &
-                                                        & + nudgefac_east(i) * tau_i * (vnudge_inp(i,j,k,1)   - (v0(i,j,k)+cv))
+                                ! Interpolate LBC in time
+                                unudge_int = tfac * unudge_inp  (i,j,k,1) + (1.-tfac) * unudge_inp  (i,j,k,2)
+                                vnudge_int = tfac * vnudge_inp  (i,j,k,1) + (1.-tfac) * vnudge_inp  (i,j,k,2)
+                                tnudge_int = tfac * thlnudge_inp(i,j,k,1) + (1.-tfac) * thlnudge_inp(i,j,k,2)
+                                qnudge_int = tfac * qtnudge_inp (i,j,k,1) + (1.-tfac) * qtnudge_inp (i,j,k,2)
+                                wnudge_int = 0.
 
-                                wp(i,j,k)   = wp(i,j,k)   + nudgefac_west(i) * tau_i * (0. - w0(i,j,k)) + &
-                                                        & + nudgefac_east(i) * tau_i * (0. - w0(i,j,k))
 
-                                thlp(i,j,k) = thlp(i,j,k) + nudgefac_west(i) * tau_i * (thlnudge_inp(i,j,k,1) - thl0(i,j,k)) + &
-                                                        & + nudgefac_east(i) * tau_i * (thlnudge_inp(i,j,k,1) - thl0(i,j,k))
+                                up(i,j,k)   = up(i,j,k)   + nudgefac_west(i) * tau_i * (unudge_int - (u0(i,j,k)+cu)) + &
+                                                        & + nudgefac_east(i) * tau_i * (unudge_int - (u0(i,j,k)+cu))
 
-                                qtp(i,j,k)  = qtp(i,j,k)  + nudgefac_west(i) * tau_i * (qtnudge_inp(i,j,k,1)  - qt0(i,j,k) ) + &
-                                                        & + nudgefac_east(i) * tau_i * (qtnudge_inp(i,j,k,1)  - qt0(i,j,k) )
+                                vp(i,j,k)   = vp(i,j,k)   + nudgefac_west(i) * tau_i * (vnudge_int - (v0(i,j,k)+cv)) + &
+                                                        & + nudgefac_east(i) * tau_i * (vnudge_int - (v0(i,j,k)+cv))
+
+                                wp(i,j,k)   = wp(i,j,k)   + nudgefac_west(i) * tau_i * (wnudge_int - w0(i,j,k)) + &
+                                                        & + nudgefac_east(i) * tau_i * (wnudge_int - w0(i,j,k))
+
+                                thlp(i,j,k) = thlp(i,j,k) + nudgefac_west(i) * tau_i * (tnudge_int - thl0(i,j,k)) + &
+                                                        & + nudgefac_east(i) * tau_i * (tnudge_int - thl0(i,j,k))
+
+                                qtp(i,j,k)  = qtp(i,j,k)  + nudgefac_west(i) * tau_i * (qnudge_int - qt0(i,j,k) ) + &
+                                                        & + nudgefac_east(i) * tau_i * (qnudge_int - qt0(i,j,k) )
                             end do
                         end do
                     end do
@@ -259,20 +324,28 @@ contains
                     do k=1,kmax
                         do j=2,j1
                             do i=2,i1
-                                up(i,j,k)   = up(i,j,k)   + nudgefac_south(j) * tau_i * (unudge_inp(i,j,k,1)   - (u0(i,j,k)+cu)) + &
-                                                        & + nudgefac_north(j) * tau_i * (unudge_inp(i,j,k,1)   - (u0(i,j,k)+cu))
 
-                                vp(i,j,k)   = vp(i,j,k)   + nudgefac_south(j) * tau_i * (vnudge_inp(i,j,k,1)   - (v0(i,j,k)+cv)) + &
-                                                        & + nudgefac_north(j) * tau_i * (vnudge_inp(i,j,k,1)   - (v0(i,j,k)+cv))
+                                ! Interpolate LBC in time
+                                unudge_int = tfac * unudge_inp(i,j,k,1)   + (1.-tfac) * unudge_inp(i,j,k,2)
+                                vnudge_int = tfac * vnudge_inp(i,j,k,1)   + (1.-tfac) * vnudge_inp(i,j,k,2)
+                                tnudge_int = tfac * thlnudge_inp(i,j,k,1) + (1.-tfac) * thlnudge_inp(i,j,k,2)
+                                qnudge_int = tfac * qtnudge_inp(i,j,k,1)  + (1.-tfac) * qtnudge_inp(i,j,k,2)
+                                wnudge_int = 0.
 
-                                wp(i,j,k)   = wp(i,j,k)   + nudgefac_south(j) * tau_i * (0. - w0(i,j,k)) + &
-                                                        & + nudgefac_north(j) * tau_i * (0. - w0(i,j,k))
+                                up(i,j,k)   = up(i,j,k)   + nudgefac_south(j) * tau_i * (unudge_int - (u0(i,j,k)+cu)) + &
+                                                        & + nudgefac_north(j) * tau_i * (unudge_int - (u0(i,j,k)+cu))
 
-                                thlp(i,j,k) = thlp(i,j,k) + nudgefac_south(j) * tau_i * (thlnudge_inp(i,j,k,1) - thl0(i,j,k)) + &
-                                                        & + nudgefac_north(j) * tau_i * (thlnudge_inp(i,j,k,1) - thl0(i,j,k))
+                                vp(i,j,k)   = vp(i,j,k)   + nudgefac_south(j) * tau_i * (vnudge_int - (v0(i,j,k)+cv)) + &
+                                                        & + nudgefac_north(j) * tau_i * (vnudge_int - (v0(i,j,k)+cv))
 
-                                qtp(i,j,k)  = qtp(i,j,k)  + nudgefac_south(j) * tau_i * (qtnudge_inp(i,j,k,1)  - qt0(i,j,k) ) + &
-                                                        & + nudgefac_north(j) * tau_i * (qtnudge_inp(i,j,k,1)  - qt0(i,j,k) )
+                                wp(i,j,k)   = wp(i,j,k)   + nudgefac_south(j) * tau_i * (wnudge_int - w0(i,j,k)) + &
+                                                        & + nudgefac_north(j) * tau_i * (wnudge_int - w0(i,j,k))
+
+                                thlp(i,j,k) = thlp(i,j,k) + nudgefac_south(j) * tau_i * (tnudge_int - thl0(i,j,k)) + &
+                                                        & + nudgefac_north(j) * tau_i * (tnudge_int - thl0(i,j,k))
+
+                                qtp(i,j,k)  = qtp(i,j,k)  + nudgefac_south(j) * tau_i * (qnudge_int  - qt0(i,j,k) ) + &
+                                                        & + nudgefac_north(j) * tau_i * (qnudge_int  - qt0(i,j,k) )
                             end do
                         end do
                     end do
@@ -312,6 +385,7 @@ contains
 
         end if ! lnudge_boundary
     end subroutine nudgeboundary
+
 
     subroutine exitnudgeboundary
         implicit none
