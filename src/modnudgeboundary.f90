@@ -92,8 +92,7 @@ contains
             lbc_index = 1
 
             ! Hack - read full initial 3D field
-            if (.not. lwarmstart)
-                call read_initial_fields
+            if (.not. lwarmstart) call read_initial_fields
 
             ! Make sure the ghost cells are set correctly..
             call boundary
