@@ -36,10 +36,21 @@ save
 
     real, dimension(:,:,:,:), allocatable :: lbc_u, lbc_v, lbc_thl, lbc_qt  ! Input for nudging to external field
 
-    real :: nudge_offset=-1, nudge_width=-1, tau=-1, perturb_ampl=0, zmax_perturb=0, dt_input_lbc=-1
+    real :: nudge_offset=-1, nudge_width=-1, nudge_radius=-1, tau=-1, perturb_ampl=0, zmax_perturb=0, dt_input_lbc=-1
     integer :: blocksize=1, kmax_perturb=0, lbc_index=1
 
 contains
+
+    function corner_factor(x, y, xc, yc, rb, dxb) result(f)
+        implicit none
+        real, intent(in) :: x, y, xc, yc, rb, dxb
+        real :: D, f
+    
+        D = sqrt((x-xc)**2 + (y-yc)**2) - rb
+        f = exp(-0.5*(D/dxb)**2)
+    end function
+
+
     subroutine initnudgeboundary
         use modmpi,      only : myid, mpierr, comm3d, mpi_logical, mpi_int, my_real, myidx, myidy, nprocx, nprocy
         use modglobal,   only : ifnamopt, fname_options, i1, j1, k1, ih, jh, dx, dy, xsize, ysize, zf, kmax, lwarmstart
@@ -47,10 +58,10 @@ contains
         implicit none
 
         integer :: ierr, i, j, k
-        real :: x, y
+        real :: x, y, dc
 
         ! Read namelist settings
-        namelist /NAMNUDGEBOUNDARY/ lnudge_boundary, nudge_offset, nudge_width, tau, &
+        namelist /NAMNUDGEBOUNDARY/ lnudge_boundary, nudge_offset, nudge_width, nudge_radius, tau, &
             & lperturb_boundary, perturb_ampl, blocksize, zmax_perturb, lsorbjan, dt_input_lbc
 
         if (myid==0) then
@@ -69,6 +80,7 @@ contains
         call MPI_BCAST(blocksize,         1, mpi_int,     0, comm3d, mpierr)
         call MPI_BCAST(nudge_offset,      1, my_real,     0, comm3d, mpierr)
         call MPI_BCAST(nudge_width,       1, my_real,     0, comm3d, mpierr)
+        call MPI_BCAST(nudge_radius,      1, my_real,     0, comm3d, mpierr)
         call MPI_BCAST(tau,               1, my_real,     0, comm3d, mpierr)
         call MPI_BCAST(perturb_ampl,      1, my_real,     0, comm3d, mpierr)
         call MPI_BCAST(zmax_perturb,      1, my_real,     0, comm3d, mpierr)
@@ -98,16 +110,33 @@ contains
             call boundary
 
             ! Calculate the nudging factor
+            dc = nudge_offset + nudge_radius
+
             do j=2, j1
                 do i=2,i1
                     ! Location in domain, accounting for MPI
                     x = myidx * (xsize / nprocx) + (i-1.5)*dx
                     y = myidy * (ysize / nprocy) + (j-1.5)*dy
 
-                    nudge_factor(i,j) = min( 1., exp(-0.5*((x-       nudge_offset )/nudge_width)**2) + &
-                                               & exp(-0.5*((x-(xsize-nudge_offset))/nudge_width)**2) + &
-                                               & exp(-0.5*((y-       nudge_offset )/nudge_width)**2) + &
-                                               & exp(-0.5*((y-(ysize-nudge_offset))/nudge_width)**2) )
+                    ! Smooth corners of nudging zone
+                    if (y < dc .and. x < dc) then    ! SW-corner
+                        nudge_factor(i,j) = corner_factor(x, y, dc, dc, nudge_radius, nudge_width)
+
+                    else if (y < dc .and. x > xsize-dc) then    ! SE-corner
+                        nudge_factor(i,j) = corner_factor(x, y, xsize-dc, dc, nudge_radius, nudge_width)
+
+                    else if (y > ysize-dc .and. x < dc) then    ! NW-corner
+                        nudge_factor(i,j) = corner_factor(x, y, dc, ysize-dc, nudge_radius, nudge_width)
+
+                    else if (y > ysize-dc .and. x > xsize-dc) then   ! NE-corner
+                        nudge_factor(i,j) = corner_factor(x, y, xsize-dc, ysize-dc, nudge_radius, nudge_width)
+
+                    else
+                        nudge_factor(i,j) = min( 1., exp(-0.5*((x-       nudge_offset )/nudge_width)**2) + &
+                                                   & exp(-0.5*((x-(xsize-nudge_offset))/nudge_width)**2) + &
+                                                   & exp(-0.5*((y-       nudge_offset )/nudge_width)**2) + &
+                                                   & exp(-0.5*((y-(ysize-nudge_offset))/nudge_width)**2) )
+                    end if
                 end do
             end do
 
