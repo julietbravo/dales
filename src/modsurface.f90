@@ -693,7 +693,7 @@ contains
   subroutine surface
     use modglobal,  only : i1,i2,j1,j2,fkar,zf,cu,cv,nsv,ijtot,rd,rv
     use modfields,  only : thl0, qt0, u0, v0, u0av, v0av
-    use modmpi,     only : my_real, mpierr, comm3d, mpi_sum, excj, excjs, mpi_integer
+    use modmpi,     only : my_real, mpierr, comm3d, mpi_sum, excj, excjs, mpi_integer, myidx, myidy
     use moduser,    only : surf_user
     implicit none
 
@@ -799,7 +799,10 @@ contains
           if(lhetero) then
             tskin(i,j) = thls_patch(patchxnr(i),patchynr(j))
           else
-            tskin(i,j) = thls
+            if (myidx == 0 .and. myidy == 0) then
+                print*, 'BvS: hacked modsurface............ (~line 800)'
+                !tskin(i,j) = thls
+            end if
           endif
         end do
       end do

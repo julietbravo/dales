@@ -45,7 +45,7 @@ contains
         implicit none
         real, intent(in) :: x, y, xc, yc, rb, dxb
         real :: D, f
-    
+
         D = sqrt((x-xc)**2 + (y-yc)**2) - rb
         f = exp(-0.5*(D/dxb)**2)
     end function
@@ -171,9 +171,10 @@ contains
 
     subroutine read_initial_fields
         ! BvS - this should really go somewhere else, probably modstartup...
-        use modfields, only : u0, v0, um, vm, thlm, thl0, qtm, qt0
-        use modglobal, only : i1, j1, iexpnr, kmax
-        use modmpi,    only : myidx, myidy
+        use modfields, only   : u0, v0, um, vm, thlm, thl0, qtm, qt0
+        use modsurfdata, only : tskin, tskinm
+        use modglobal, only   : i1, j1, iexpnr, kmax
+        use modmpi,    only   : myidx, myidy
 
         implicit none
 
@@ -185,16 +186,18 @@ contains
         print*,'Reading initial field: ', input_file
 
         open(666, file=input_file, form='unformatted', status='unknown', action='read', access='stream')
-        read(666) u0  (2:i1,2:j1,1:kmax)
-        read(666) v0  (2:i1,2:j1,1:kmax)
-        read(666) thl0(2:i1,2:j1,1:kmax)
-        read(666) qt0 (2:i1,2:j1,1:kmax)
+        read(666) u0   (2:i1,2:j1,1:kmax)
+        read(666) v0   (2:i1,2:j1,1:kmax)
+        read(666) thl0 (2:i1,2:j1,1:kmax)
+        read(666) qt0  (2:i1,2:j1,1:kmax)
+        read(666) tskin(2:i1,2:j1       )
         close(666)
 
-        um  (2:i1,2:j1,1:kmax) = u0  (2:i1,2:j1,1:kmax)
-        vm  (2:i1,2:j1,1:kmax) = v0  (2:i1,2:j1,1:kmax)
-        thlm(2:i1,2:j1,1:kmax) = thl0(2:i1,2:j1,1:kmax)
-        qtm (2:i1,2:j1,1:kmax) = qt0 (2:i1,2:j1,1:kmax)
+        um     (2:i1,2:j1,1:kmax) = u0   (2:i1,2:j1,1:kmax)
+        vm     (2:i1,2:j1,1:kmax) = v0   (2:i1,2:j1,1:kmax)
+        thlm   (2:i1,2:j1,1:kmax) = thl0 (2:i1,2:j1,1:kmax)
+        qtm    (2:i1,2:j1,1:kmax) = qt0  (2:i1,2:j1,1:kmax)
+        tskinm (2:i1,2:j1       ) = tskin(2:i1,2:j1       )
 
     end subroutine read_initial_fields
 
@@ -219,7 +222,7 @@ contains
             write(input_file(13:15), '(i3.3)') myidx
             write(input_file(17:19), '(i3.3)') myidy
             write(input_file(21:23), '(i3.3)') iexpnr
-            
+
             print*,'Processing LBC: ', input_file
 
             ! Copy old second time to new first time
@@ -281,11 +284,11 @@ contains
                             lbc_t_int = tfac * lbc_thl(i,j,k,1) + (1.-tfac) * lbc_thl(i,j,k,2)
                             lbc_q_int = tfac * lbc_qt (i,j,k,1) + (1.-tfac) * lbc_qt (i,j,k,2)
                             lbc_w_int = 0.
-    
+
                             ! Nudge the boundaries
-                            up(i,j,k)   = up(i,j,k)   + nudge_factor(i,j) * tau_i * (lbc_u_int - (u0(i,j,k)+cu)) 
-                            vp(i,j,k)   = vp(i,j,k)   + nudge_factor(i,j) * tau_i * (lbc_v_int - (v0(i,j,k)+cv)) 
-                            wp(i,j,k)   = wp(i,j,k)   + nudge_factor(i,j) * tau_i * (lbc_w_int - w0(i,j,k)) 
+                            up(i,j,k)   = up(i,j,k)   + nudge_factor(i,j) * tau_i * (lbc_u_int - (u0(i,j,k)+cu))
+                            vp(i,j,k)   = vp(i,j,k)   + nudge_factor(i,j) * tau_i * (lbc_v_int - (v0(i,j,k)+cv))
+                            wp(i,j,k)   = wp(i,j,k)   + nudge_factor(i,j) * tau_i * (lbc_w_int - w0(i,j,k))
                             thlp(i,j,k) = thlp(i,j,k) + nudge_factor(i,j) * tau_i * (lbc_t_int - thl0(i,j,k))
                             qtp(i,j,k)  = qtp(i,j,k)  + nudge_factor(i,j) * tau_i * (lbc_q_int - qt0(i,j,k) )
 
