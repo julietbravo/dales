@@ -203,7 +203,8 @@ contains
     if(timee<tnext .and. rk3step==3) then
       dt_lim = min(dt_lim,tnext-timee)
     end if
-    if((itimerad==0 .or. timee==tnext) .and. rk3step==1) then
+
+    if((itimerad==0 .or. timee==tnext .or. tnext<timee) .and. rk3step==1) then
       tnext = tnext+itimerad
       thlprad = 0.0
       select case (iradiation)
