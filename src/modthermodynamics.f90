@@ -510,6 +510,7 @@ contains
                 if(tlonr<1 .or.tlonr>1999) then
                   write(*,*) 'thermo crash: i,j,k,niter,thl0(i,j,k),qt0(i,j,k)'
                   write(*,*) i,j,k,niter,thl0(i,j,k),qt0(i,j,k)
+                  stop
                 endif
                 thinr=tlonr+1
                 tlo=ttab(tlonr)
@@ -617,6 +618,7 @@ contains
                 if(tlonr<1 .or.tlonr>1999) then
                   write(*,*) 'thermo crash: i,j,k,niter,thl0h(i,j,k),qt0h(i,j,k)'
                   write(*,*) i,j,k,niter,thl0h(i,j,k),qt0h(i,j,k)
+                  stop
                 endif
                 thinr=tlonr+1
                 tlo=ttab(tlonr)

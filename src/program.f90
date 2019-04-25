@@ -137,6 +137,7 @@ program DALES      !Version 4.0.0alpha
   use modbulkmicrostat,only : initbulkmicrostat, bulkmicrostat,exitbulkmicrostat
   use modbudget,       only : initbudget, budgetstat, exitbudget
   use modheterostats,  only : initheterostats, heterostats, exitheterostats
+  use modcolumnstat,   only : initcolumnstat
 
   ! modules below are disabled by default to improve compilation time
   !use modstress,       only : initstressbudget, stressbudgetstat, exitstressbudget
@@ -185,11 +186,11 @@ program DALES      !Version 4.0.0alpha
   !call initstressbudget
   call initchem
   call initheterostats
+  call initcolumnstat
   call initcanopy
 
   !call initspectra2
   call initcape
-
 
 !------------------------------------------------------
 !   3.0   MAIN TIME LOOP
