@@ -29,10 +29,11 @@ save
     logical :: lcolumnstat = .false.    ! Switch column statistics
 
     ! NetCDF output
-    integer, parameter :: nvar = 13
+    integer, parameter :: nvar = 13     ! Number of profiles
+    integer, parameter :: nvart = 12    ! Number of time series
     character(80) :: fname = 'column.i_____j_____.___.nc'
     character(80), dimension(nvar,4) :: ncname
-    character(80), dimension(1,4)    :: tncname
+    character(80), dimension(nvart,4) :: tncname
     integer, allocatable :: nrec(:), ncid(:)
 
     ! Statistics timing
@@ -45,6 +46,7 @@ save
 
     ! Array to sample/average statistics
     real, allocatable :: column_data(:,:,:)
+    real, allocatable :: time_data(:,:)
     integer :: nsamples = 0
 
 contains
@@ -86,6 +88,7 @@ contains
         use modfields, only    : um, vm, wm, thlm, qtm, ql0, svm
         use modmicrodata, only : imicro, imicro_bulk, precep
         use modraddata, only   : swd, swu, lwd, lwu
+        use modsurfdata, only  : H, LE, G0, ustar, obl, rs, ra, rsveg, rssoil, Wl, tskin
         implicit none
 
         integer :: n, ii, jj
@@ -94,6 +97,20 @@ contains
             ii = column_i(n) + 1
             jj = column_j(n) + 1
 
+            ! Time series
+            time_data( 2,n) = time_data( 2,n) + H(ii,jj)
+            time_data( 3,n) = time_data( 3,n) + LE(ii,jj)
+            time_data( 4,n) = time_data( 4,n) + G0(ii,jj)
+            time_data( 5,n) = time_data( 5,n) + ustar(ii,jj)
+            time_data( 6,n) = time_data( 6,n) + obl(ii,jj)
+            time_data( 7,n) = time_data( 7,n) + rs(ii,jj)
+            time_data( 8,n) = time_data( 8,n) + ra(ii,jj)
+            time_data( 9,n) = time_data( 9,n) + rsveg(ii,jj)
+            time_data(10,n) = time_data(10,n) + rssoil(ii,jj)
+            time_data(11,n) = time_data(11,n) + Wl(ii,jj)
+            time_data(12,n) = time_data(12,n) + tskin(ii,jj)
+
+            ! Columns
             column_data(:,1,n) = column_data(:,1,n) + um  (ii,jj,1:kmax)+cu
             column_data(:,2,n) = column_data(:,2,n) + vm  (ii,jj,1:kmax)+cv
             column_data(:,3,n) = column_data(:,3,n) + wm  (ii,jj,1:kmax)
@@ -130,15 +147,19 @@ contains
 
         ! Calculate mean
         column_data(:,:,:) = column_data(:,:,:) / nsamples
+        time_data(:,:)     = time_data(:,:)     / nsamples
+
+        time_data(1,:) = rtimee
 
         ! Write to NetCDF files
         do n=1, ncolumns_loc
-            call writestat_nc(ncid(n), 1, tncname, (/rtimee/), nrec(n), .true.)
-            call writestat_nc(ncid(n), nvar, ncname, column_data(1:kmax,:,n), nrec(n), kmax)
+            call writestat_nc(ncid(n), nvart, tncname, time_data(:,n),          nrec(n), .true.)
+            call writestat_nc(ncid(n), nvar,  ncname,  column_data(1:kmax,:,n), nrec(n), kmax)
         end do
 
         ! Reset field and counter
         column_data(:,:,:) = 0.
+        time_data(:,:) = 0.
         nsamples = 0
 
     end subroutine write_columns
@@ -262,6 +283,17 @@ contains
         ! Define variables and their names / units / ..
         ! Time only:
         call ncinfo(tncname( 1,:), 'time', 'Time', 's', 'time')
+        call ncinfo(tncname( 2,:), 'H', 'Sensible heat flux', 'W/m2', 'time')
+        call ncinfo(tncname( 3,:), 'LE', 'Latent heat flux', 'W/m2', 'time')
+        call ncinfo(tncname( 4,:), 'G', 'Soil heat flux', 'W/m2', 'time')
+        call ncinfo(tncname( 5,:), 'ustar', 'Surface friction velocity', 'm/s', 'time')
+        call ncinfo(tncname( 6,:), 'obukh', 'Obukhov length', 'm', 'time')
+        call ncinfo(tncname( 7,:), 'rs', 'Surface resistance', 's/m', 'time')
+        call ncinfo(tncname( 8,:), 'ra', 'Aerodynamic resistance', 's/m', 'time')
+        call ncinfo(tncname( 9,:), 'rsveg', 'Vegitation resistance', 's/m', 'time')
+        call ncinfo(tncname(10,:), 'rssoil', 'Soil resistance', 's/m', 'time')
+        call ncinfo(tncname(11,:), 'wl', 'Liquid water reservoir', 'm', 'time')
+        call ncinfo(tncname(12,:), 'tskin', 'Skin temperature', 'K', 'time')
         ! Vertical profiles:
         call ncinfo(ncname ( 1,:), 'u', 'West-east velocity', 'm/s', 'tt')
         call ncinfo(ncname ( 2,:), 'v', 'South-North velocity', 'm/s', 'tt')
@@ -292,15 +324,16 @@ contains
             ncid(n) = 666 + n
             call open_nc(fname, ncid(n), nrec(n), n3=kmax)
             if (nrec(n) == 0) then
-                call define_nc(ncid(n), 1, tncname)
+                call define_nc(ncid(n), nvart, tncname)
                 call writestat_dims_nc(ncid(n))
             end if
             call define_nc(ncid(n), nvar, ncname)
         end do
 
         ! Allocate array which gathers all statistics
-        allocate( column_data(1:kmax, nvar, ncolumns_loc) )
+        allocate( column_data(1:kmax, nvar, ncolumns_loc), time_data(nvart, ncolumns_loc) )
         column_data(:,:,:) = 0.
+        time_data(:,:) = 0.
 
     end subroutine initcolumnstat
 
@@ -321,7 +354,7 @@ contains
         end do
 
          ! Clean memory
-        deallocate(nrec, ncid, column_i, column_j, column_data)
+        deallocate(nrec, ncid, column_i, column_j, column_data, time_data)
 
     end subroutine exitcolumnstat
 
