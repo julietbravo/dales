@@ -48,7 +48,8 @@ save
 
       character(50) :: fname_options = 'namoptions'
       integer, parameter :: longint=8
-      logical :: lwarmstart = .false.!<   flag for "cold" or "warm" start
+      logical :: lwarmstart = .false. !< flag for "cold" or "warm" start
+      logical :: lresettime = .false. !< flag for resetting time to zero after a warm start 
       real    :: trestart  = 3600. !<     * each trestart sec. a restart file is written to disk
       integer(kind=longint) :: itrestart !<     * each trestart sec. a restart file is written to disk
       integer(kind=longint)    :: tnextrestart    !<     * each trestart sec. a restart file is written to disk
@@ -463,6 +464,7 @@ contains
         write(6,'(i4,5f10.2)') k,dzf(k),zf(k),zh(k),dzh(k),delta(k)
       end do
     end if
+
 !     tnextrestart = trestart/tres
 !     timeleft=ceiling(runtime/tres)
 

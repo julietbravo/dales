@@ -55,7 +55,7 @@ contains
       !-----------------------------------------------------------------|
 
     use modglobal,         only : initglobal,iexpnr, ltotruntime, runtime, dtmax, dtav_glob,timeav_glob,&
-                                  lwarmstart,startfile,trestart,&
+                                  lwarmstart,lresettime,startfile,trestart,&
                                   nsv,itot,jtot,kmax,xsize,ysize,xlat,xlon,xday,xtime,&
                                   lmoist,lcoriol,lpressgrad,igrw_damp,geodamptime,lmomsubs,cu, cv,ifnamopt,fname_options,llsadv,&
                                   ibas_prf,lambda_crit,iadv_mom,iadv_tke,iadv_thl,iadv_qt,iadv_sv,courant,peclet,ladaptive,author,lnoclouds,lrigidlid,unudge
@@ -83,7 +83,7 @@ contains
 
     !declare namelists
     namelist/RUN/ &
-        iexpnr,lwarmstart,startfile,ltotruntime, runtime,dtmax,wctime,dtav_glob,timeav_glob,&
+        iexpnr,lwarmstart,lresettime,startfile,ltotruntime, runtime,dtmax,wctime,dtav_glob,timeav_glob,&
         trestart,irandom,randthl,randqt,krand,nsv,courant,peclet,ladaptive,author,&
         krandumin, krandumax, randu,&
         nprocx,nprocy
@@ -151,6 +151,7 @@ contains
   !broadcast namelists
     call MPI_BCAST(iexpnr     ,1,MPI_INTEGER,0,MPI_COMM_WORLD,mpierr)
     call MPI_BCAST(lwarmstart ,1,MPI_LOGICAL,0,MPI_COMM_WORLD,mpierr)
+    call MPI_BCAST(lresettime ,1,MPI_LOGICAL,0,MPI_COMM_WORLD,mpierr)
     call MPI_BCAST(startfile  ,50,MPI_CHARACTER,0,MPI_COMM_WORLD,mpierr)
     call MPI_BCAST(author     ,80,MPI_CHARACTER,0,MPI_COMM_WORLD,mpierr)
     call MPI_BCAST(runtime    ,1,MY_REAL   ,0,MPI_COMM_WORLD,mpierr)
@@ -366,8 +367,8 @@ contains
     use modglobal,         only : i1,i2,ih,j1,j2,jh,kmax,k1,dtmax,idtmax,dt,rdt,runtime,timeleft,tres,&
                                   rtimee,timee,ntrun,btime,dt_lim,nsv,&
                                   zf,dzf,dzh,rv,rd,cp,rlv,pref0,om23_gs,&
-                                  ijtot,cu,cv,e12min,dzh,cexpnr,ifinput,lwarmstart,ltotruntime,itrestart,&
-                                  trestart, ladaptive,llsadv,tnextrestart
+                                  ijtot,cu,cv,e12min,dzh,cexpnr,ifinput,lwarmstart,lresettime,ltotruntime,&
+                                  itrestart, trestart, ladaptive,llsadv,tnextrestart
     use modsubgrid,        only : ekm,ekh
     use modsurfdata,       only : wsvsurf, &
                                   thls,tskin,tskinm,tsoil,tsoilm,phiw,phiwm,Wl,Wlm,thvs,qts,isurf,svs,obl,oblav,&
@@ -458,7 +459,6 @@ contains
                 uprof  (k), &
                 vprof  (k), &
                 e12prof(k)
-
         end do
 
         if (minval(e12prof(1:kmax)) < e12min) then
@@ -610,6 +610,9 @@ contains
     else !if lwarmstart
 
       call readrestartfiles
+
+      if (lresettime) timee = 0
+
       um   = u0
       vm   = v0
       wm   = w0
@@ -739,7 +742,6 @@ contains
               thlpcar(k)
       end do
 
-
     end if ! end myid==0
 
 ! MPI broadcast variables read in
@@ -799,6 +801,7 @@ contains
     rtimee  = real(timee)*tres
     itrestart = floor(trestart/tres)
     tnextrestart = btime + itrestart
+
     deallocate (height,th0av,thv0)
 
 

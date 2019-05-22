@@ -364,6 +364,7 @@ contains
     end if
 
     fac = ( rtimee-timels(t) ) / ( timels(t+1)-timels(t) )
+
     ug       = ugt      (:,t) + fac * ( ugt      (:,t+1) - ugt      (:,t) )
     vg       = vgt      (:,t) + fac * ( vgt      (:,t+1) - vgt      (:,t) )
     wfls     = wflst    (:,t) + fac * ( wflst    (:,t+1) - wflst    (:,t) )

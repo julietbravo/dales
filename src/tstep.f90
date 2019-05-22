@@ -123,13 +123,19 @@ subroutine tstep_update
            peclettotl=max(peclettotl,maxval(ekh(2:i1,2:j1,k))*rdt/minval((/dzh(k),dx,dy/))**2)
         end do
         call MPI_ALLREDUCE(peclettotl,peclettot,1,MY_REAL,MPI_MAX,comm3d,mpierr)
-        dt = min(timee,dt_lim,idtmax,floor(rdt/tres*courant/courtotmax,longint),floor(rdt/tres*peclet/peclettot,longint))
+        if (timee > 0) then
+            ! BvS: why min(timee, ...)?
+            dt = min(timee,dt_lim,idtmax,floor(rdt/tres*courant/courtotmax,longint),floor(rdt/tres*peclet/peclettot,longint))
+        else
+            dt = min(dt_lim,idtmax,floor(rdt/tres*courant/courtotmax,longint),floor(rdt/tres*peclet/peclettot,longint))
+        endif
         rdt = dble(dt)*tres
         timeleft=timeleft-dt
         dt_lim = timeleft
         timee   = timee  + dt
         rtimee  = dble(timee)*tres
         ntrun   = ntrun  + 1
+
       else
         dt = idtmax
         rdt = dtmax
