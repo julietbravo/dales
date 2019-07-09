@@ -36,19 +36,28 @@ save
 
     real, dimension(:,:,:,:), allocatable :: lbc_u, lbc_v, lbc_thl, lbc_qt  ! Input for nudging to external field
 
-    real :: nudge_offset=-1, nudge_width=-1, nudge_radius=-1, tau=-1, perturb_ampl=0, zmax_perturb=0, dt_input_lbc=-1
-    integer :: blocksize=1, kmax_perturb=0, lbc_index=1
+    ! Boundary nudging settings:
+    real :: nudge_offset=0, nudge_width=0, nudge_radius=0, nudge_tau=-1
+
+    ! Inflow boundary perturbations settings:
+    real :: perturb_offset=0, perturb_width=0, perturb_radius=0, perturb_ampl=0, perturb_zmax=100
+    integer :: perturb_blocksize=1, kmax_perturb=0
+
+    ! Misc
+    real :: dt_input_lbc=-1
+    integer :: lbc_index=1
 
 contains
 
-    function corner_factor(x, y, xc, yc, rb, dxb) result(f)
+    function corner_factor(x, y, x_center, y_center, radius, width) result(f)
         implicit none
-        real, intent(in) :: x, y, xc, yc, rb, dxb
+        real, intent(in) :: x, y, x_center, y_center, radius, width
         real :: D, f
 
-        D = sqrt((x-xc)**2 + (y-yc)**2) - rb
-        f = exp(-0.5*(D/dxb)**2)
+        D = sqrt((x-x_center)**2 + (y-y_center)**2) - radius
+        f = exp(-0.5*(D/width)**2)
     end function
+
 
 
     subroutine initnudgeboundary
@@ -61,8 +70,10 @@ contains
         real :: x, y, dc
 
         ! Read namelist settings
-        namelist /NAMNUDGEBOUNDARY/ lnudge_boundary, nudge_offset, nudge_width, nudge_radius, tau, &
-            & lperturb_boundary, perturb_ampl, blocksize, zmax_perturb, lsorbjan, dt_input_lbc
+        namelist /NAMNUDGEBOUNDARY/ lnudge_boundary, lperturb_boundary, &
+            & nudge_offset, nudge_width, nudge_radius, nudge_tau, &
+            & perturb_offset, perturb_width, perturb_radius, perturb_ampl, perturb_zmax, &
+            & lsorbjan, dt_input_lbc
 
         if (myid==0) then
             open(ifnamopt, file=fname_options, status='old', iostat=ierr)
@@ -77,13 +88,20 @@ contains
         call MPI_BCAST(lnudge_boundary,   1, mpi_logical, 0, comm3d, mpierr)
         call MPI_BCAST(lperturb_boundary, 1, mpi_logical, 0, comm3d, mpierr)
         call MPI_BCAST(lsorbjan,          1, mpi_logical, 0, comm3d, mpierr)
-        call MPI_BCAST(blocksize,         1, mpi_int,     0, comm3d, mpierr)
+
+        call MPI_BCAST(perturb_blocksize, 1, mpi_int,     0, comm3d, mpierr)
+
         call MPI_BCAST(nudge_offset,      1, my_real,     0, comm3d, mpierr)
         call MPI_BCAST(nudge_width,       1, my_real,     0, comm3d, mpierr)
         call MPI_BCAST(nudge_radius,      1, my_real,     0, comm3d, mpierr)
-        call MPI_BCAST(tau,               1, my_real,     0, comm3d, mpierr)
+        call MPI_BCAST(nudge_tau,         1, my_real,     0, comm3d, mpierr)
+
+        call MPI_BCAST(perturb_offset,    1, my_real,     0, comm3d, mpierr)
+        call MPI_BCAST(perturb_width,     1, my_real,     0, comm3d, mpierr)
+        call MPI_BCAST(perturb_radius,    1, my_real,     0, comm3d, mpierr)
         call MPI_BCAST(perturb_ampl,      1, my_real,     0, comm3d, mpierr)
-        call MPI_BCAST(zmax_perturb,      1, my_real,     0, comm3d, mpierr)
+        call MPI_BCAST(perturb_zmax,      1, my_real,     0, comm3d, mpierr)
+
         call MPI_BCAST(dt_input_lbc,      1, my_real,     0, comm3d, mpierr)
 
         if (lnudge_boundary) then
@@ -197,7 +215,7 @@ contains
         vm     (2:i1,2:j1,1:kmax) = v0   (2:i1,2:j1,1:kmax)
         thlm   (2:i1,2:j1,1:kmax) = thl0 (2:i1,2:j1,1:kmax)
         qtm    (2:i1,2:j1,1:kmax) = qt0  (2:i1,2:j1,1:kmax)
-        tskinm (2:i1,2:j1       ) = tskin(2:i1,2:j1       )
+!        tskinm (2:i1,2:j1       ) = tskin(2:i1,2:j1       )
 
     end subroutine read_initial_fields
 
