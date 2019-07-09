@@ -798,11 +798,11 @@ contains
         do i = 2, i1
           if(lhetero) then
             tskin(i,j) = thls_patch(patchxnr(i),patchynr(j))
-          else
-            if (myidx == 0 .and. myidy == 0) then
-                print*, 'BvS: hacked modsurface............ (~line 800)'
-                !tskin(i,j) = thls
-            end if
+          !else
+          !  if (myidx == 0 .and. myidy == 0) then
+          !      print*, 'BvS: hacked modsurface............ (~line 800)'
+          !      !tskin(i,j) = thls
+          !  end if
           endif
         end do
       end do

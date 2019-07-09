@@ -29,7 +29,6 @@ public  :: initnudgeboundary, nudgeboundary, exitnudgeboundary
 save
     logical :: lnudge_boundary = .false.    ! Switch boundary nudging
     logical :: lperturb_boundary = .false.  ! Switch perturbation of thl near boundary
-    logical :: lsorbjan = .false.
 
     real, dimension(:,:), allocatable :: nudge_factor    ! Nudging factor (0-1) near lateral boundaries
     real, dimension(:,:), allocatable :: perturb_factor  ! Perturbing factor (0-1) near lateral boundaries
@@ -47,33 +46,82 @@ save
     real :: dt_input_lbc=-1
     integer :: lbc_index=1
 
+
 contains
 
     function corner_factor(x, y, x_center, y_center, radius, width) result(f)
+
         implicit none
         real, intent(in) :: x, y, x_center, y_center, radius, width
         real :: D, f
 
         D = sqrt((x-x_center)**2 + (y-y_center)**2) - radius
         f = exp(-0.5*(D/width)**2)
+
     end function
 
 
+    subroutine calc_weighting_factor(factor, offset, width, radius)
+
+        use modglobal, only : xsize, ysize, j1, i1, dx, dy
+        use modmpi,    only : myidx, myidy, nprocx, nprocy
+        implicit none
+
+        real, dimension(2:i1,2:j1), intent(inout) :: factor
+        real, intent(in) :: offset, width, radius
+
+        real :: dc, x, y
+        integer :: i, j
+
+        ! Total size of corners
+        dc = offset + radius
+
+        ! Calculate weighting factor
+        do j=2, j1
+            do i=2,i1
+                ! Location in domain, accounting for MPI
+                x = myidx * (xsize / nprocx) + (i-1.5)*dx
+                y = myidy * (ysize / nprocy) + (j-1.5)*dy
+
+                ! Smooth corners of nudging zone
+                if (y < dc .and. x < dc) then    ! SW-corner
+                    factor(i,j) = corner_factor(x, y, dc, dc, radius, width)
+
+                else if (y < dc .and. x > xsize-dc) then    ! SE-corner
+                    factor(i,j) = corner_factor(x, y, xsize-dc, dc, radius, width)
+
+                else if (y > ysize-dc .and. x < dc) then    ! NW-corner
+                    factor(i,j) = corner_factor(x, y, dc, ysize-dc, radius, width)
+
+                else if (y > ysize-dc .and. x > xsize-dc) then   ! NE-corner
+                    factor(i,j) = corner_factor(x, y, xsize-dc, ysize-dc, radius, width)
+
+                else
+                    factor(i,j) = min( 1., exp(-0.5*((x-       offset )/width)**2) + &
+                                         & exp(-0.5*((x-(xsize-offset))/width)**2) + &
+                                         & exp(-0.5*((y-       offset )/width)**2) + &
+                                         & exp(-0.5*((y-(ysize-offset))/width)**2) )
+                end if
+            end do
+        end do
+
+    end subroutine calc_weighting_factor
+
 
     subroutine initnudgeboundary
-        use modmpi,      only : myid, mpierr, comm3d, mpi_logical, mpi_int, my_real, myidx, myidy, nprocx, nprocy
-        use modglobal,   only : ifnamopt, fname_options, i1, j1, k1, ih, jh, dx, dy, xsize, ysize, zf, kmax, lwarmstart
+
+        use modmpi,      only : myid, mpierr, comm3d, mpi_logical, mpi_int, my_real
+        use modglobal,   only : ifnamopt, fname_options, i1, j1, k1, ih, jh, lwarmstart, kmax, zf
         use modboundary, only : boundary
         implicit none
 
-        integer :: ierr, i, j, k
-        real :: x, y, dc
+        integer :: ierr, k
 
         ! Read namelist settings
         namelist /NAMNUDGEBOUNDARY/ lnudge_boundary, lperturb_boundary, &
             & nudge_offset, nudge_width, nudge_radius, nudge_tau, &
             & perturb_offset, perturb_width, perturb_radius, perturb_ampl, perturb_zmax, &
-            & lsorbjan, dt_input_lbc
+            & dt_input_lbc, perturb_blocksize
 
         if (myid==0) then
             open(ifnamopt, file=fname_options, status='old', iostat=ierr)
@@ -87,7 +135,6 @@ contains
 
         call MPI_BCAST(lnudge_boundary,   1, mpi_logical, 0, comm3d, mpierr)
         call MPI_BCAST(lperturb_boundary, 1, mpi_logical, 0, comm3d, mpierr)
-        call MPI_BCAST(lsorbjan,          1, mpi_logical, 0, comm3d, mpierr)
 
         call MPI_BCAST(perturb_blocksize, 1, mpi_int,     0, comm3d, mpierr)
 
@@ -128,69 +175,32 @@ contains
             call boundary
 
             ! Calculate the nudging factor
-            dc = nudge_offset + nudge_radius
-
-            do j=2, j1
-                do i=2,i1
-                    ! Location in domain, accounting for MPI
-                    x = myidx * (xsize / nprocx) + (i-1.5)*dx
-                    y = myidy * (ysize / nprocy) + (j-1.5)*dy
-
-                    ! Smooth corners of nudging zone
-                    if (y < dc .and. x < dc) then    ! SW-corner
-                        nudge_factor(i,j) = corner_factor(x, y, dc, dc, nudge_radius, nudge_width)
-
-                    else if (y < dc .and. x > xsize-dc) then    ! SE-corner
-                        nudge_factor(i,j) = corner_factor(x, y, xsize-dc, dc, nudge_radius, nudge_width)
-
-                    else if (y > ysize-dc .and. x < dc) then    ! NW-corner
-                        nudge_factor(i,j) = corner_factor(x, y, dc, ysize-dc, nudge_radius, nudge_width)
-
-                    else if (y > ysize-dc .and. x > xsize-dc) then   ! NE-corner
-                        nudge_factor(i,j) = corner_factor(x, y, xsize-dc, ysize-dc, nudge_radius, nudge_width)
-
-                    else
-                        nudge_factor(i,j) = min( 1., exp(-0.5*((x-       nudge_offset )/nudge_width)**2) + &
-                                                   & exp(-0.5*((x-(xsize-nudge_offset))/nudge_width)**2) + &
-                                                   & exp(-0.5*((y-       nudge_offset )/nudge_width)**2) + &
-                                                   & exp(-0.5*((y-(ysize-nudge_offset))/nudge_width)**2) )
-                    end if
-                end do
-            end do
+            call calc_weighting_factor(nudge_factor, nudge_offset, nudge_width, nudge_radius)
 
             if (lperturb_boundary) then
                 allocate( perturb_factor(2:i1, 2:j1) )
 
+                call calc_weighting_factor(perturb_factor, perturb_offset, perturb_width, perturb_radius)
+
                 ! Find maximum grid level to which the perturbations are applied
                 do k=1,kmax
-                    if (zf(k) > zmax_perturb) then
+                    if (zf(k) > perturb_zmax) then
                         kmax_perturb = k-1
                         exit
                     end if
                 end do
-
-                do j=2, j1
-                    do i=2,i1
-                        ! Location in domain, accounting for MPI
-                        x = myidx * (xsize / nprocx) + (i-1.5)*dx
-                        y = myidy * (ysize / nprocy) + (j-1.5)*dy
-
-                        perturb_factor(i,j) = min( 1., exp(-0.5*((x-       1.5*nudge_offset )/nudge_width)**2) + &
-                                                     & exp(-0.5*((x-(xsize-1.5*nudge_offset))/nudge_width)**2) + &
-                                                     & exp(-0.5*((y-       1.5*nudge_offset )/nudge_width)**2) + &
-                                                     & exp(-0.5*((y-(ysize-1.5*nudge_offset))/nudge_width)**2) )
-                    end do
-                end do
             end if ! lperturb_boundary
 
         end if ! lnudge_boundary
+
     end subroutine initnudgeboundary
 
 
     subroutine read_initial_fields
+
         ! BvS - this should really go somewhere else, probably modstartup...
         use modfields, only   : u0, v0, um, vm, thlm, thl0, qtm, qt0
-        use modsurfdata, only : tskin, tskinm
+        use modsurfdata, only : tskin
         use modglobal, only   : i1, j1, iexpnr, kmax
         use modmpi,    only   : myidx, myidy
 
@@ -215,12 +225,12 @@ contains
         vm     (2:i1,2:j1,1:kmax) = v0   (2:i1,2:j1,1:kmax)
         thlm   (2:i1,2:j1,1:kmax) = thl0 (2:i1,2:j1,1:kmax)
         qtm    (2:i1,2:j1,1:kmax) = qt0  (2:i1,2:j1,1:kmax)
-!        tskinm (2:i1,2:j1       ) = tskin(2:i1,2:j1       )
 
     end subroutine read_initial_fields
 
 
     subroutine read_new_LBCs(time)
+
         use modglobal, only : i1, j1, iexpnr, kmax
         use modmpi,    only : myidx, myidy, nprocx, nprocy
 
@@ -263,6 +273,7 @@ contains
 
 
     subroutine nudgeboundary
+
         use modglobal, only : i1, j1, imax, jmax, kmax, rdt, cu, cv, eps1, rtimee
         use modfields, only : u0, up, v0, vp, w0, wp, thl0, thlp, qt0, qtp
         use modmpi, only    : myidx, myidy, nprocx, nprocy
@@ -274,10 +285,10 @@ contains
 
         if (lnudge_boundary) then
 
-            if (tau <= eps1) then
+            if (nudge_tau <= eps1) then
                 tau_i = 1. / rdt  ! Nudge on time scale equal to current time step
             else
-                tau_i = 1. / tau  ! Nudge on specified time scale
+                tau_i = 1. / nudge_tau  ! Nudge on specified time scale
             end if
 
             ! Read new LBC (if required)
@@ -320,23 +331,15 @@ contains
             if (lperturb_boundary) then
 
                 do k=1,kmax_perturb
-                    !if (lsorbjan) then
-                    !    ! BvS; even quicker-and-dirtier test using variance scaling from Sorbjan (1989)
-                    !    thetastr = -8e-3 / 0.28        ! BOMEX
-                    !    zi       = zmax_perturb
 
-                    !    perturb_ampl = 2*((2*(zf(k)/zi)**(-2/3.) * (1-(zf(k)/zi))**(4/3.) + 0.94*(zf(k)/zi)**(4/3.) * &
-                    !        & (1-(zf(k)/zi))**(-2/3.)) * thetastr**2.)**0.5
-                    !end if
-
-                    do blockj=0, jmax/blocksize-1
-                        do blocki=0, imax/blocksize-1
+                    do blockj=0, jmax/perturb_blocksize-1
+                        do blocki=0, imax/perturb_blocksize-1
                             perturbation = perturb_ampl*(rand(0)-0.5)
 
-                            do subj=0, blocksize-1
-                                do subi=0, blocksize-1
-                                    i = blocki*blocksize + subi + 2
-                                    j = blockj*blocksize + subj + 2
+                            do subj=0, perturb_blocksize-1
+                                do subi=0, perturb_blocksize-1
+                                    i = blocki*perturb_blocksize + subi + 2
+                                    j = blockj*perturb_blocksize + subj + 2
 
                                     thlp(i,j,k) = thlp(i,j,k) + perturb_factor(i,j) * perturbation / rdt
                                 end do
@@ -344,19 +347,23 @@ contains
 
                         end do
                     end do
+
                 end do
             end if
 
         end if ! lnudge_boundary
+
     end subroutine nudgeboundary
 
 
     subroutine exitnudgeboundary
+
         implicit none
         if (lnudge_boundary) then
             deallocate( nudge_factor, lbc_u, lbc_v, lbc_thl, lbc_qt )
             if (lperturb_boundary) deallocate( perturb_factor )
         end if
+
     end subroutine exitnudgeboundary
 
 end module modnudgeboundary
