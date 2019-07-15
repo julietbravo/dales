@@ -29,6 +29,7 @@ public  :: initnudgeboundary, nudgeboundary, exitnudgeboundary
 save
     logical :: lnudge_boundary = .false.    ! Switch boundary nudging
     logical :: lperturb_boundary = .false.  ! Switch perturbation of thl near boundary
+    logical :: lnudge_w = .true.            ! Nudge w to zero or not
 
     real, dimension(:,:), allocatable :: nudge_factor    ! Nudging factor (0-1) near lateral boundaries
     real, dimension(:,:), allocatable :: perturb_factor  ! Perturbing factor (0-1) near lateral boundaries
@@ -118,7 +119,7 @@ contains
         integer :: ierr, k
 
         ! Read namelist settings
-        namelist /NAMNUDGEBOUNDARY/ lnudge_boundary, lperturb_boundary, &
+        namelist /NAMNUDGEBOUNDARY/ lnudge_boundary, lperturb_boundary, lnudge_w, &
             & nudge_offset, nudge_width, nudge_radius, nudge_tau, &
             & perturb_offset, perturb_width, perturb_radius, perturb_ampl, perturb_zmax, &
             & dt_input_lbc, perturb_blocksize
@@ -135,6 +136,7 @@ contains
 
         call MPI_BCAST(lnudge_boundary,   1, mpi_logical, 0, comm3d, mpierr)
         call MPI_BCAST(lperturb_boundary, 1, mpi_logical, 0, comm3d, mpierr)
+        call MPI_BCAST(lnudge_w,          1, mpi_logical, 0, comm3d, mpierr)
 
         call MPI_BCAST(perturb_blocksize, 1, mpi_int,     0, comm3d, mpierr)
 
@@ -317,9 +319,12 @@ contains
                             ! Nudge the boundaries
                             up(i,j,k)   = up(i,j,k)   + nudge_factor(i,j) * tau_i * (lbc_u_int - (u0(i,j,k)+cu))
                             vp(i,j,k)   = vp(i,j,k)   + nudge_factor(i,j) * tau_i * (lbc_v_int - (v0(i,j,k)+cv))
-                            wp(i,j,k)   = wp(i,j,k)   + nudge_factor(i,j) * tau_i * (lbc_w_int - w0(i,j,k))
                             thlp(i,j,k) = thlp(i,j,k) + nudge_factor(i,j) * tau_i * (lbc_t_int - thl0(i,j,k))
                             qtp(i,j,k)  = qtp(i,j,k)  + nudge_factor(i,j) * tau_i * (lbc_q_int - qt0(i,j,k) )
+
+                            if (lnudge_w) then
+                                wp(i,j,k)   = wp(i,j,k)   + nudge_factor(i,j) * tau_i * (lbc_w_int - w0(i,j,k))
+                            end if
 
                         end do
                     end do
