@@ -277,6 +277,10 @@ contains
         use modglobal, only : i1, j1, imax, jmax, kmax, rdt, cu, cv, eps1, rtimee
         use modfields, only : u0, up, v0, vp, w0, wp, thl0, thlp, qt0, qtp
         use modmpi, only    : myidx, myidy, nprocx, nprocy
+
+        #ifdef __INTEL_COMPILER
+        use ifport
+        #endif
         implicit none
 
         integer :: i, j, k, blocki, blockj, subi, subj
