@@ -280,9 +280,9 @@ contains
         use modfields, only : u0, up, v0, vp, w0, wp, thl0, thlp, qt0, qtp
         use modmpi, only    : myidx, myidy, nprocx, nprocy
 
-        #ifdef __INTEL_COMPILER
-        use ifport
-        #endif
+#ifdef __INTEL_COMPILER
+use ifport
+#endif
         implicit none
 
         integer :: i, j, k, blocki, blockj, subi, subj
