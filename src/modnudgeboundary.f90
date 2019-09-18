@@ -150,10 +150,6 @@ contains
                             & u0av,  v0av,  thl0av,  qt0av
         use modmpi, only    : nprocy, my_real, commcol, mpierr, mpi_sum
 
-#ifdef __INTEL_COMPILER
-use ifport
-#endif
-
         implicit none
 
         integer :: i, j, k, blocki, blockj, subi, subj, n, ioffs
