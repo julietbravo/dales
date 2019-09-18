@@ -39,14 +39,13 @@ save
     real :: perturb_offset=-1, perturb_width=-1, perturb_ampl=0, zmax_perturb=0
     integer :: blocksize=1, kmax_perturb=0
     integer :: recycle_source=0, recycle_target=0, recycle_width=0
-    real :: tau_recycle=-1
+    real :: tau_recycle=-1, zmax_recycle=-1
+    integer :: kmax_recycle
 
 contains
     subroutine initnudgeboundary
         use modmpi,    only : myid, mpierr, comm3d, mpi_logical, mpi_int, my_real, myidx, myidy, nprocx, nprocy
         use modglobal, only : ifnamopt, fname_options, i1, j1, k1, dx, dy, xsize, ysize, zf, kmax
-
-
 
         implicit none
 
@@ -120,6 +119,18 @@ contains
                 do k=1,kmax
                     if (zf(k) > zmax_perturb) then
                         kmax_perturb = k-1
+                        exit
+                    end if
+                end do
+            end if
+
+            if (lrecycle) then
+                !
+                ! Find max grid levels to which the recycling is applied
+                !
+                do k=1,kmax
+                    if (zf(k) > zmax_recycle) then
+                        kmax_recycle = k-1
                         exit
                     end if
                 end do
@@ -285,7 +296,6 @@ use ifport
                     tau_i = 1. / tau_recycle
                 end if
 
-
                 ub_westl   = 0
                 vb_westl   = 0
                 thlb_westl = 0
@@ -325,7 +335,7 @@ use ifport
                 ! Add perturbations to goal area
                 ioffs = recycle_source - recycle_target
                 do i=recycle_target+2, recycle_target+recycle_width+1
-                    do k=1,kmax
+                    do k=1,kmax_recycle
                         do j=2,j1
                             up(i,j,k)   = up(i,j,k)   + (u0  (i+ioffs,j,k) - ub_westg(k)  ) * tau_i
                             vp(i,j,k)   = vp(i,j,k)   + (v0  (i+ioffs,j,k) - vb_westg(k)  ) * tau_i
