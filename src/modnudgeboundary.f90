@@ -42,6 +42,9 @@ contains
     subroutine initnudgeboundary
         use modmpi,    only : myid, mpierr, comm3d, mpi_logical, mpi_int, my_real, myidx, myidy, nprocx, nprocy
         use modglobal, only : ifnamopt, fname_options, i1, j1, k1, dx, dy, xsize, ysize, zf, kmax
+
+
+
         implicit none
 
         integer :: ierr, i, j, k
@@ -121,6 +124,11 @@ contains
                             & uprof, vprof, thlprof, qtprof, &
                             & u0av,  v0av,  thl0av,  qt0av
         use modmpi, only    : nprocy, my_real, commcol, mpierr, mpi_sum
+
+#ifdef __INTEL_COMPILER
+use ifport
+#endif
+
         implicit none
 
         integer :: i, j, k, blocki, blockj, subi, subj, n
