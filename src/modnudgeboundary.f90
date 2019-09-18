@@ -27,7 +27,8 @@ implicit none
 
 public  :: initnudgeboundary, nudgeboundary, exitnudgeboundary
 save
-    logical :: lnudge_boundary = .false., lnudge_mean=.false., lperturb_boundary = .false.
+    logical :: lnudge_boundary = .false., lnudge_mean=.false.
+    logical :: lperturb_boundary = .false., lrecycle=.false.
     integer :: nudge_mode = 2  ! 1=to initial profile, 2=to mean profile
     real, dimension(:), allocatable :: nudgefac_west, perturbfac_west
     real, dimension(:), allocatable :: unudge, vnudge, thlnudge, qtnudge
@@ -37,6 +38,8 @@ save
     real :: nudge_offset=-1, nudge_width=-1, tau=-1
     real :: perturb_offset=-1, perturb_width=-1, perturb_ampl=0, zmax_perturb=0
     integer :: blocksize=1, kmax_perturb=0
+    integer :: recycle_source=0, recycle_target=0, recycle_width=0
+    real :: tau_recycle=-1
 
 contains
     subroutine initnudgeboundary
@@ -55,7 +58,7 @@ contains
         !
         namelist /NAMNUDGEBOUNDARY/ lnudge_boundary, nudge_offset, nudge_width, tau, nudge_mode, &
             & lperturb_boundary, perturb_offset, perturb_width, perturb_ampl, blocksize, zmax_perturb, &
-            & lnudge_mean
+            & lnudge_mean, lrecycle, recycle_source, recycle_target, recycle_width, tau_recycle
 
         if (myid==0) then
             open(ifnamopt, file=fname_options, status='old', iostat=ierr)
@@ -70,8 +73,14 @@ contains
         call MPI_BCAST(lnudge_boundary,   1, mpi_logical, 0, comm3d, mpierr)
         call MPI_BCAST(lperturb_boundary, 1, mpi_logical, 0, comm3d, mpierr)
         call MPI_BCAST(lnudge_mean,       1, mpi_logical, 0, comm3d, mpierr)
+        call MPI_BCAST(lrecycle,          1, mpi_logical, 0, comm3d, mpierr)
+
         call MPI_BCAST(nudge_mode,        1, mpi_int,     0, comm3d, mpierr)
         call MPI_BCAST(blocksize,         1, mpi_int,     0, comm3d, mpierr)
+        call MPI_BCAST(recycle_source,    1, mpi_int,     0, comm3d, mpierr)
+        call MPI_BCAST(recycle_target,    1, mpi_int,     0, comm3d, mpierr)
+        call MPI_BCAST(recycle_width,     1, mpi_int,     0, comm3d, mpierr)
+
         call MPI_BCAST(nudge_offset,      1, my_real,     0, comm3d, mpierr)
         call MPI_BCAST(nudge_width,       1, my_real,     0, comm3d, mpierr)
         call MPI_BCAST(tau,               1, my_real,     0, comm3d, mpierr)
@@ -79,6 +88,7 @@ contains
         call MPI_BCAST(perturb_width,     1, my_real,     0, comm3d, mpierr)
         call MPI_BCAST(perturb_ampl,      1, my_real,     0, comm3d, mpierr)
         call MPI_BCAST(zmax_perturb,      1, my_real,     0, comm3d, mpierr)
+        call MPI_BCAST(tau_recycle,       1, my_real,     0, comm3d, mpierr)
 
         if (lnudge_boundary) then
             !
@@ -131,7 +141,7 @@ use ifport
 
         implicit none
 
-        integer :: i, j, k, blocki, blockj, subi, subj, n
+        integer :: i, j, k, blocki, blockj, subi, subj, n, ioffs
         real :: tau_i, perturbation, zi, thetastr
 
         if (lnudge_boundary) then
@@ -258,17 +268,74 @@ use ifport
                                     i = blocki*blocksize + subi + 2
                                     j = blockj*blocksize + subj + 2
 
-                                    if (perturbfac_west(i) > 0.01) then
-                                        !thlp(i,j,k) = thlp(i,j,k) + perturbfac_west(i) * perturbation / rdt
-                                        thlp(i,j,k) = thlp(i,j,k) + perturbation / rdt
-                                    end if
+                                    thlp(i,j,k) = thlp(i,j,k) + perturbfac_west(i) * perturbation / rdt
                                 end do
                             end do
 
                         end do
                     end do
                 end do
-           end if
+            end if ! lperturb_boundary
+
+            if (lrecycle) then
+
+                if (tau_recycle <= eps1) then
+                    tau_i = 1. / rdt
+                else
+                    tau_i = 1. / tau_recycle
+                end if
+
+
+                ub_westl   = 0
+                vb_westl   = 0
+                thlb_westl = 0
+                qtb_westl  = 0
+
+                ! Calculate mean profiles over source area
+                do i=recycle_source+2, recycle_source+recycle_width+1
+                    do k=1,kmax
+                        do j=2,j1
+                            ub_westl  (k) = ub_westl  (k) + u0  (i,j,k)
+                            vb_westl  (k) = vb_westl  (k) + v0  (i,j,k)
+                            thlb_westl(k) = thlb_westl(k) + thl0(i,j,k)
+                            qtb_westl (k) = qtb_westl (k) + qt0 (i,j,k)
+                        end do
+                    end do
+                end do
+
+                ub_westl   = ub_westl   / (recycle_width*jmax)
+                vb_westl   = vb_westl   / (recycle_width*jmax)
+                thlb_westl = thlb_westl / (recycle_width*jmax)
+                qtb_westl  = qtb_westl  / (recycle_width*jmax)
+
+                !
+                ! Calculate MPI mean in y-direction
+                ! TO-DO: write routine in modmpi
+                !
+                call MPI_ALLREDUCE(ub_westl,   ub_westg,   kmax, my_real, mpi_sum, commcol, mpierr)
+                call MPI_ALLREDUCE(vb_westl,   vb_westg,   kmax, my_real, mpi_sum, commcol, mpierr)
+                call MPI_ALLREDUCE(thlb_westl, thlb_westg, kmax, my_real, mpi_sum, commcol, mpierr)
+                call MPI_ALLREDUCE(qtb_westl,  qtb_westg,  kmax, my_real, mpi_sum, commcol, mpierr)
+
+                ub_westg   = ub_westg   / nprocy
+                vb_westg   = vb_westg   / nprocy
+                thlb_westg = thlb_westg / nprocy
+                qtb_westg  = qtb_westg  / nprocy
+
+                ! Add perturbations to goal area
+                ioffs = recycle_source - recycle_target
+                do i=recycle_target+2, recycle_target+recycle_width+1
+                    do k=1,kmax
+                        do j=2,j1
+                            up(i,j,k)   = up(i,j,k)   + (u0  (i+ioffs,j,k) - ub_westg(k)  ) * tau_i
+                            vp(i,j,k)   = vp(i,j,k)   + (v0  (i+ioffs,j,k) - vb_westg(k)  ) * tau_i
+                            thlp(i,j,k) = thlp(i,j,k) + (thl0(i+ioffs,j,k) - thlb_westg(k)) * tau_i
+                            qtp(i,j,k)  = qtp(i,j,k)  + (qt0 (i+ioffs,j,k) - qtb_westg(k) ) * tau_i
+                        end do
+                    end do
+                end do
+
+            end if ! lrecycle
 
         end if ! lnudge_boundary
     end subroutine nudgeboundary
