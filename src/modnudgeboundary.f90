@@ -91,6 +91,9 @@ contains
         call MPI_BCAST(zmax_recycle,      1, my_real,     0, comm3d, mpierr)
 
         if (lnudge_boundary) then
+            ! Set different random seed per MPI tasks
+            call init_random_seed
+
             !
             ! Init and calculate nudge factors
             !
@@ -154,7 +157,7 @@ use ifport
         implicit none
 
         integer :: i, j, k, blocki, blockj, subi, subj, n, ioffs
-        real :: tau_i, perturbation, zi, thetastr
+        real :: tau_i, perturbation, zi, thetastr, randnr
 
         if (lnudge_boundary) then
 
@@ -273,7 +276,8 @@ use ifport
                 do k=1,kmax_perturb
                     do blockj=0, jmax/blocksize-1
                         do blocki=0, imax/blocksize-1
-                            perturbation = perturb_ampl*(rand(0)-0.5)
+                            call random_number(randnr)
+                            perturbation = perturb_ampl*(randnr-0.5)
 
                             do subj=0, blocksize-1
                                 do subi=0, blocksize-1
@@ -351,6 +355,7 @@ use ifport
         end if ! lnudge_boundary
     end subroutine nudgeboundary
 
+
     subroutine exitnudgeboundary
         implicit none
         if (lnudge_boundary) then
@@ -358,5 +363,21 @@ use ifport
             deallocate( unudge, vnudge, thlnudge, qtnudge)
         end if
     end subroutine exitnudgeboundary
+
+
+    subroutine init_random_seed
+        use modmpi, only : myid
+        implicit none
+
+        integer :: i, n
+        integer, dimension(:), allocatable :: seed
+
+        call random_seed(size=n)
+        allocate(seed(n))
+        seed = myid * (/ (i-1, i=1, n) /)
+        call random_seed(put = seed)
+        deallocate(seed)
+
+    end subroutine init_random_seed
 
 end module modnudgeboundary
