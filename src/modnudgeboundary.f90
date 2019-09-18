@@ -57,7 +57,7 @@ contains
         !
         namelist /NAMNUDGEBOUNDARY/ lnudge_boundary, nudge_offset, nudge_width, tau, nudge_mode, &
             & lperturb_boundary, perturb_offset, perturb_width, perturb_ampl, blocksize, zmax_perturb, &
-            & lnudge_mean, lrecycle, recycle_source, recycle_target, recycle_width, tau_recycle
+            & lnudge_mean, lrecycle, recycle_source, recycle_target, recycle_width, tau_recycle, zmax_recycle
 
         if (myid==0) then
             open(ifnamopt, file=fname_options, status='old', iostat=ierr)
@@ -88,6 +88,7 @@ contains
         call MPI_BCAST(perturb_ampl,      1, my_real,     0, comm3d, mpierr)
         call MPI_BCAST(zmax_perturb,      1, my_real,     0, comm3d, mpierr)
         call MPI_BCAST(tau_recycle,       1, my_real,     0, comm3d, mpierr)
+        call MPI_BCAST(zmax_recycle,      1, my_real,     0, comm3d, mpierr)
 
         if (lnudge_boundary) then
             !
