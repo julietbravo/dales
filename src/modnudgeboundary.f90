@@ -148,7 +148,7 @@ contains
         use modfields, only : u0, up, v0, vp, w0, wp, thl0, thlp, qt0, qtp, &
                             & uprof, vprof, thlprof, qtprof, &
                             & u0av,  v0av,  thl0av,  qt0av
-        use modmpi, only    : nprocy, my_real, commcol, mpierr, mpi_sum
+        use modmpi, only    : nprocy, my_real, commcol, mpierr, mpi_sum, myidx
 
         implicit none
 
@@ -291,60 +291,64 @@ contains
 
             if (lrecycle) then
 
-                if (tau_recycle <= eps1) then
-                    tau_i = 1. / rdt
-                else
-                    tau_i = 1. / tau_recycle
-                end if
+                if (myidx == 0) then
 
-                ub_westl   = 0
-                vb_westl   = 0
-                thlb_westl = 0
-                qtb_westl  = 0
+                    if (tau_recycle <= eps1) then
+                        tau_i = 1. / rdt
+                    else
+                        tau_i = 1. / tau_recycle
+                    end if
 
-                ! Calculate mean profiles over source area
-                do i=recycle_source+2, recycle_source+recycle_width+1
-                    do k=1,kmax
-                        do j=2,j1
-                            ub_westl  (k) = ub_westl  (k) + u0  (i,j,k)
-                            vb_westl  (k) = vb_westl  (k) + v0  (i,j,k)
-                            thlb_westl(k) = thlb_westl(k) + thl0(i,j,k)
-                            qtb_westl (k) = qtb_westl (k) + qt0 (i,j,k)
+                    ub_westl   = 0
+                    vb_westl   = 0
+                    thlb_westl = 0
+                    qtb_westl  = 0
+
+                    ! Calculate mean profiles over source area
+                    do i=recycle_source+2, recycle_source+recycle_width+1
+                        do k=1,kmax
+                            do j=2,j1
+                                ub_westl  (k) = ub_westl  (k) + u0  (i,j,k)
+                                vb_westl  (k) = vb_westl  (k) + v0  (i,j,k)
+                                thlb_westl(k) = thlb_westl(k) + thl0(i,j,k)
+                                qtb_westl (k) = qtb_westl (k) + qt0 (i,j,k)
+                            end do
                         end do
                     end do
-                end do
 
-                ub_westl   = ub_westl   / (recycle_width*jmax)
-                vb_westl   = vb_westl   / (recycle_width*jmax)
-                thlb_westl = thlb_westl / (recycle_width*jmax)
-                qtb_westl  = qtb_westl  / (recycle_width*jmax)
+                    ub_westl   = ub_westl   / (recycle_width*jmax)
+                    vb_westl   = vb_westl   / (recycle_width*jmax)
+                    thlb_westl = thlb_westl / (recycle_width*jmax)
+                    qtb_westl  = qtb_westl  / (recycle_width*jmax)
 
-                !
-                ! Calculate MPI mean in y-direction
-                ! TO-DO: write routine in modmpi
-                !
-                call MPI_ALLREDUCE(ub_westl,   ub_westg,   kmax, my_real, mpi_sum, commcol, mpierr)
-                call MPI_ALLREDUCE(vb_westl,   vb_westg,   kmax, my_real, mpi_sum, commcol, mpierr)
-                call MPI_ALLREDUCE(thlb_westl, thlb_westg, kmax, my_real, mpi_sum, commcol, mpierr)
-                call MPI_ALLREDUCE(qtb_westl,  qtb_westg,  kmax, my_real, mpi_sum, commcol, mpierr)
+                    !
+                    ! Calculate MPI mean in y-direction
+                    ! TO-DO: write routine in modmpi
+                    !
+                    call MPI_ALLREDUCE(ub_westl,   ub_westg,   kmax, my_real, mpi_sum, commcol, mpierr)
+                    call MPI_ALLREDUCE(vb_westl,   vb_westg,   kmax, my_real, mpi_sum, commcol, mpierr)
+                    call MPI_ALLREDUCE(thlb_westl, thlb_westg, kmax, my_real, mpi_sum, commcol, mpierr)
+                    call MPI_ALLREDUCE(qtb_westl,  qtb_westg,  kmax, my_real, mpi_sum, commcol, mpierr)
 
-                ub_westg   = ub_westg   / nprocy
-                vb_westg   = vb_westg   / nprocy
-                thlb_westg = thlb_westg / nprocy
-                qtb_westg  = qtb_westg  / nprocy
+                    ub_westg   = ub_westg   / nprocy
+                    vb_westg   = vb_westg   / nprocy
+                    thlb_westg = thlb_westg / nprocy
+                    qtb_westg  = qtb_westg  / nprocy
 
-                ! Add perturbations to goal area
-                ioffs = recycle_source - recycle_target
-                do i=recycle_target+2, recycle_target+recycle_width+1
-                    do k=1,kmax_recycle
-                        do j=2,j1
-                            up(i,j,k)   = up(i,j,k)   + (u0  (i+ioffs,j,k) - ub_westg(k)  ) * tau_i
-                            vp(i,j,k)   = vp(i,j,k)   + (v0  (i+ioffs,j,k) - vb_westg(k)  ) * tau_i
-                            thlp(i,j,k) = thlp(i,j,k) + (thl0(i+ioffs,j,k) - thlb_westg(k)) * tau_i
-                            qtp(i,j,k)  = qtp(i,j,k)  + (qt0 (i+ioffs,j,k) - qtb_westg(k) ) * tau_i
+                    ! Add perturbations to goal area
+                    ioffs = recycle_source - recycle_target
+                    do i=recycle_target+2, recycle_target+recycle_width+1
+                        do k=1,kmax_recycle
+                            do j=2,j1
+                                up(i,j,k)   = up(i,j,k)   + (u0  (i+ioffs,j,k) - ub_westg(k)  ) * tau_i
+                                vp(i,j,k)   = vp(i,j,k)   + (v0  (i+ioffs,j,k) - vb_westg(k)  ) * tau_i
+                                thlp(i,j,k) = thlp(i,j,k) + (thl0(i+ioffs,j,k) - thlb_westg(k)) * tau_i
+                                qtp(i,j,k)  = qtp(i,j,k)  + (qt0 (i+ioffs,j,k) - qtb_westg(k) ) * tau_i
+                            end do
                         end do
                     end do
-                end do
+
+                end if ! myidx==0
 
             end if ! lrecycle
 
