@@ -25,11 +25,12 @@
 module modnudgeboundary
 implicit none
 
-public  :: initnudgeboundary, nudgeboundary, exitnudgeboundary
+public  :: initnudgeboundary, nudgeboundary, exitnudgeboundary, write_nudging_fields
 save
     logical :: lnudge_boundary = .false.    ! Switch boundary nudging
     logical :: lperturb_boundary = .false.  ! Switch perturbation of thl near boundary
     logical :: lnudge_w = .true.            ! Nudge w to zero or not
+    logical :: lnudge_spectral = .false.    ! Spectral nudging to large scale field
 
     real, dimension(:,:), allocatable :: nudge_factor    ! Nudging factor (0-1) near lateral boundaries
     real, dimension(:,:), allocatable :: perturb_factor  ! Perturbing factor (0-1) near lateral boundaries
@@ -43,10 +44,12 @@ save
     real :: perturb_offset=0, perturb_width=0, perturb_radius=0, perturb_ampl=0, perturb_zmax=100
     integer :: perturb_blocksize=1, kmax_perturb=0
 
+    ! Spectral nudging
+    real :: dt_nudge_spectral=-1
+
     ! Misc
     real :: dt_input_lbc=-1
     integer :: lbc_index=1
-
 
 contains
 
@@ -112,7 +115,8 @@ contains
     subroutine initnudgeboundary
 
         use modmpi,      only : myid, mpierr, comm3d, mpi_logical, mpi_int, my_real
-        use modglobal,   only : ifnamopt, fname_options, i1, j1, k1, ih, jh, lwarmstart, kmax, zf
+        use modglobal,   only : ifnamopt, fname_options, i1, j1, k1, ih, jh, lwarmstart, &
+            & kmax, zf, rtimee
         use modboundary, only : boundary
         implicit none
 
@@ -122,7 +126,7 @@ contains
         namelist /NAMNUDGEBOUNDARY/ lnudge_boundary, lperturb_boundary, lnudge_w, &
             & nudge_offset, nudge_width, nudge_radius, nudge_tau, &
             & perturb_offset, perturb_width, perturb_radius, perturb_ampl, perturb_zmax, &
-            & dt_input_lbc, perturb_blocksize
+            & dt_input_lbc, perturb_blocksize, lnudge_spectral, dt_nudge_spectral
 
         if (myid==0) then
             open(ifnamopt, file=fname_options, status='old', iostat=ierr)
@@ -137,6 +141,7 @@ contains
         call MPI_BCAST(lnudge_boundary,   1, mpi_logical, 0, comm3d, mpierr)
         call MPI_BCAST(lperturb_boundary, 1, mpi_logical, 0, comm3d, mpierr)
         call MPI_BCAST(lnudge_w,          1, mpi_logical, 0, comm3d, mpierr)
+        call MPI_BCAST(lnudge_spectral,   1, mpi_logical, 0, comm3d, mpierr)
 
         call MPI_BCAST(perturb_blocksize, 1, mpi_int,     0, comm3d, mpierr)
 
@@ -152,6 +157,7 @@ contains
         call MPI_BCAST(perturb_zmax,      1, my_real,     0, comm3d, mpierr)
 
         call MPI_BCAST(dt_input_lbc,      1, my_real,     0, comm3d, mpierr)
+        call MPI_BCAST(dt_nudge_spectral, 1, my_real,     0, comm3d, mpierr)
 
         if (lnudge_boundary) then
 
@@ -166,12 +172,16 @@ contains
             allocate( lbc_qt (2-ih:i1+ih, 2-jh:j1+jh, k1, 2) )
 
             ! Read the first two input times
-            call read_new_LBCs(0.)
-            call read_new_LBCs(dt_input_lbc)
-            lbc_index = 1
+            lbc_index = rtimee/dt_input_lbc+1
+            call read_new_LBCs((lbc_index-1)*dt_input_lbc)
+            call read_new_LBCs(lbc_index*dt_input_lbc)
 
             ! Hack - read full initial 3D field
-            if (.not. lwarmstart) call read_initial_fields
+            if (.not. lwarmstart) then
+                call read_fields('lbc', .true.)
+            else if (lnudge_spectral) then
+                call read_fields('bld', .false.)
+            end if
 
             ! Make sure the ghost cells are set correctly..
             call boundary
@@ -198,7 +208,7 @@ contains
     end subroutine initnudgeboundary
 
 
-    subroutine read_initial_fields
+    subroutine read_fields(fld_name, lsurface)
 
         ! BvS - this should really go somewhere else, probably modstartup...
         use modfields, only   : u0, v0, um, vm, thlm, thl0, qtm, qt0
@@ -207,20 +217,25 @@ contains
         use modmpi,    only   : myidx, myidy
 
         implicit none
+        character(3), intent(in) :: fld_name
+        logical, intent(in) :: lsurface
 
-        character(80) :: input_file = 'lbc000h00m_x___y___.___'
+        character(80) :: input_file = '___000h00m_x___y___.___'
+        write(input_file(1:3),   '(A3)')   fld_name
         write(input_file(13:15), '(i3.3)') myidx
         write(input_file(17:19), '(i3.3)') myidy
         write(input_file(21:23), '(i3.3)') iexpnr
 
-        print*,'Reading initial field: ', input_file
+        print*,'Reading field: ', input_file
 
         open(666, file=input_file, form='unformatted', status='unknown', action='read', access='stream')
         read(666) u0   (2:i1,2:j1,1:kmax)
         read(666) v0   (2:i1,2:j1,1:kmax)
         read(666) thl0 (2:i1,2:j1,1:kmax)
         read(666) qt0  (2:i1,2:j1,1:kmax)
-        read(666) tskin(2:i1,2:j1       )
+        if (lsurface) then 
+            read(666) tskin(2:i1,2:j1)
+        endif
         close(666)
 
         um     (2:i1,2:j1,1:kmax) = u0   (2:i1,2:j1,1:kmax)
@@ -228,7 +243,38 @@ contains
         thlm   (2:i1,2:j1,1:kmax) = thl0 (2:i1,2:j1,1:kmax)
         qtm    (2:i1,2:j1,1:kmax) = qt0  (2:i1,2:j1,1:kmax)
 
-    end subroutine read_initial_fields
+    end subroutine read_fields
+
+
+    subroutine write_nudging_fields(fld_name)
+
+        ! BvS - this should really go somewhere else, probably modstartup...
+        use modfields, only   : u0, v0, um, vm, thlm, thl0, qtm, qt0
+        use modsurfdata, only : tskin
+        use modglobal, only   : i1, j1, iexpnr, kmax, timeleft, rk3step
+        use modmpi,    only   : myidx, myidy
+
+        implicit none
+        character(3), intent(in) :: fld_name
+        character(80) :: input_file = '___000h00m_x___y___.___'
+
+        if (lnudge_boundary .and. lnudge_spectral .and. rk3step == 3 .and. timeleft==0) then
+
+            write(input_file(1:3),   '(A3)')   fld_name
+            write(input_file(13:15), '(i3.3)') myidx
+            write(input_file(17:19), '(i3.3)') myidy
+            write(input_file(21:23), '(i3.3)') iexpnr
+            print*,'Writing field: ', input_file
+
+            open(666, file=input_file, form='unformatted', status='unknown', action='write', access='stream')
+            write(666) u0   (2:i1,2:j1,1:kmax)
+            write(666) v0   (2:i1,2:j1,1:kmax)
+            write(666) thl0 (2:i1,2:j1,1:kmax)
+            write(666) qt0  (2:i1,2:j1,1:kmax)
+            close(666)
+        end if
+
+    end subroutine write_nudging_fields
 
 
     subroutine read_new_LBCs(time)
@@ -280,9 +326,9 @@ contains
         use modfields, only : u0, up, v0, vp, w0, wp, thl0, thlp, qt0, qtp
         use modmpi, only    : myidx, myidy, nprocx, nprocy
 
-#ifdef __INTEL_COMPILER
-use ifport
-#endif
+!#ifdef __INTEL_COMPILER
+        use ifport
+!#endif
         implicit none
 
         integer :: i, j, k, blocki, blockj, subi, subj

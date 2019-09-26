@@ -149,6 +149,7 @@ program DALES      !Version 4.0.0alpha
   !use modprojection,   only : initprojection, projection
   use modchem,         only : initchem,twostep
   use modcanopy,       only : initcanopy, canopy, exitcanopy
+  use modnudgeboundary, only : write_nudging_fields
 
 
   implicit none
@@ -293,6 +294,7 @@ program DALES      !Version 4.0.0alpha
 
     call testwctime
     call writerestartfiles
+    call write_nudging_fields('fld')
 
   end do
 
