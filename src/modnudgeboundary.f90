@@ -103,6 +103,8 @@ contains
         call MPI_BCAST(dt_nudge_spectral, 1, my_real,     0, comm3d, mpierr)
 
         if (lnudge_boundary) then
+            ! Init random seed, based on MPI id for reproducibility
+            call init_random_seed
 
             ! Init and calculate nudge and perturb factors
             allocate( nudge_factor(2:i1, 2:j1) )
@@ -167,13 +169,10 @@ contains
         use modfields, only : u0, up, v0, vp, w0, wp, thl0, thlp, qt0, qtp
         use modmpi, only    : myidx, myidy, nprocx, nprocy
 
-!#ifdef __INTEL_COMPILER
-!        use ifport
-!#endif
         implicit none
 
         integer :: i, j, k, blocki, blockj, subi, subj
-        real :: tau_i, perturbation, t0, t1, tfac, runtime
+        real :: tau_i, perturbation, t0, t1, tfac, runtime, randnr
         real :: lbc_u_int, lbc_v_int, lbc_w_int, lbc_t_int, lbc_q_int
 
         if (lnudge_boundary) then
@@ -230,7 +229,8 @@ contains
 
                     do blockj=0, jmax/perturb_blocksize-1
                         do blocki=0, imax/perturb_blocksize-1
-                            perturbation = perturb_ampl*(rand(0)-0.5)
+                            call random_number(randnr)
+                            perturbation = perturb_ampl*(randnr-0.5)
 
                             do subj=0, perturb_blocksize-1
                                 do subi=0, perturb_blocksize-1
@@ -496,5 +496,20 @@ contains
         end if
 
     end subroutine write_fields
+
+    subroutine init_random_seed
+        use modmpi, only : myid
+        implicit none
+
+        integer :: i, n
+        integer, dimension(:), allocatable :: seed
+
+        call random_seed(size=n)
+        allocate(seed(n))
+        seed = myid * (/ (i-1, i=1, n) /)
+        call random_seed(put = seed)
+        deallocate(seed)
+
+    end subroutine init_random_seed
 
 end module modnudgeboundary
