@@ -274,12 +274,13 @@ contains
 
 
     subroutine exitnudgeboundary
+        use modglobal, only : lwarmstart
 
         implicit none
         if (lnudge_boundary) then
             deallocate( nudge_factor, lbc_u, lbc_v, lbc_thl, lbc_qt )
             if (lperturb_boundary) deallocate( perturb_factor )
-            if (lnudge_spectral) deallocate( inc_u, inc_v, inc_thl, inc_qt )
+            if (lnudge_spectral .and. lwarmstart) deallocate( inc_u, inc_v, inc_thl, inc_qt )
         end if
 
     end subroutine exitnudgeboundary
