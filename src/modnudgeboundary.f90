@@ -32,9 +32,12 @@ save
     integer :: nudge_mode = 2  ! 1=to initial profile, 2=to mean profile
     real, dimension(:), allocatable :: nudgefac_west, perturbfac_west
     real, dimension(:), allocatable :: unudge, vnudge, thlnudge, qtnudge
-    real, dimension(:), allocatable :: ub_westl, vb_westl, thlb_westl, qtb_westl
-    real, dimension(:), allocatable :: ub_westg, vb_westg, thlb_westg, qtb_westg
+    real, dimension(:), allocatable :: ub_l, vb_l, wb_l, thlb_l, qtb_l    ! Local mean
+    real, dimension(:), allocatable :: ub_g, vb_g, wb_g, thlb_g, qtb_g    ! MPI global mean
+    real, dimension(:), allocatable :: ubt_l, vbt_l, wbt_l, thlbt_l, qtbt_l    ! Local mean
+    real, dimension(:), allocatable :: ubt_g, vbt_g, wbt_g, thlbt_g, qtbt_g    ! MPI global mean
     real, dimension(:), allocatable :: ut_west, vt_west, thlt_west, qtt_west
+
     real :: nudge_offset=-1, nudge_width=-1, tau=-1
     real :: perturb_offset=-1, perturb_width=-1, perturb_ampl=0, zmax_perturb=0
     integer :: blocksize=1, kmax_perturb=0
@@ -91,7 +94,8 @@ contains
         call MPI_BCAST(zmax_recycle,      1, my_real,     0, comm3d, mpierr)
 
         if (lnudge_boundary) then
-            ! Set different random seed per MPI tasks
+            ! Set different random seed per MPI task (but based 
+            ! on MPI task id, so reproducible...)
             call init_random_seed
 
             !
@@ -99,8 +103,10 @@ contains
             !
             allocate( nudgefac_west(2:i1),  perturbfac_west(2:i1) )
             allocate( unudge(k1), vnudge(k1), thlnudge(k1), qtnudge(k1) )
-            allocate( ub_westl(k1), vb_westl(k1), thlb_westl(k1), qtb_westl(k1) )
-            allocate( ub_westg(k1), vb_westg(k1), thlb_westg(k1), qtb_westg(k1) )
+            allocate( ub_l(k1),  vb_l(k1),  wb_l(k1),  thlb_l(k1),  qtb_l(k1) )
+            allocate( ub_g(k1),  vb_g(k1),  wb_g(k1),  thlb_g(k1),  qtb_g(k1) )
+            allocate( ubt_l(k1), vbt_l(k1), wbt_l(k1), thlbt_l(k1), qtbt_l(k1) )
+            allocate( ubt_g(k1), vbt_g(k1), wbt_g(k1), thlbt_g(k1), qtbt_g(k1) )
             allocate( ut_west(k1), vt_west(k1), thlt_west(k1), qtt_west(k1) )
 
             do i=2,i1
@@ -185,10 +191,10 @@ contains
                 ! Nudge only the mean state
                 !
 
-                ub_westl   = 0
-                vb_westl   = 0
-                thlb_westl = 0
-                qtb_westl  = 0
+                ub_l   = 0
+                vb_l   = 0
+                thlb_l = 0
+                qtb_l  = 0
 
                 n = 0
                 do i=2,i1
@@ -196,10 +202,10 @@ contains
                         n = n+1
                         do k=1,kmax
                             do j=2,j1
-                                ub_westl  (k) = ub_westl  (k) + u0  (i,j,k)+cu
-                                vb_westl  (k) = vb_westl  (k) + v0  (i,j,k)+cv
-                                thlb_westl(k) = thlb_westl(k) + thl0(i,j,k)
-                                qtb_westl (k) = qtb_westl (k) + qt0 (i,j,k)
+                                ub_l  (k) = ub_l  (k) + u0  (i,j,k)+cu
+                                vb_l  (k) = vb_l  (k) + v0  (i,j,k)+cv
+                                thlb_l(k) = thlb_l(k) + thl0(i,j,k)
+                                qtb_l (k) = qtb_l (k) + qt0 (i,j,k)
                             end do
                         end do
                     end if
@@ -207,32 +213,32 @@ contains
 
                 if (n > 0) then
 
-                    ub_westl   = ub_westl   / (n*jmax)
-                    vb_westl   = vb_westl   / (n*jmax)
-                    thlb_westl = thlb_westl / (n*jmax)
-                    qtb_westl  = qtb_westl  / (n*jmax)
+                    ub_l   = ub_l   / (n*jmax)
+                    vb_l   = vb_l   / (n*jmax)
+                    thlb_l = thlb_l / (n*jmax)
+                    qtb_l  = qtb_l  / (n*jmax)
 
                     !
                     ! Calculate MPI mean in y-direction
                     ! TO-DO: write routine in modmpi
                     !
-                    call MPI_ALLREDUCE(ub_westl,   ub_westg,   kmax, my_real, mpi_sum, commcol, mpierr)
-                    call MPI_ALLREDUCE(vb_westl,   vb_westg,   kmax, my_real, mpi_sum, commcol, mpierr)
-                    call MPI_ALLREDUCE(thlb_westl, thlb_westg, kmax, my_real, mpi_sum, commcol, mpierr)
-                    call MPI_ALLREDUCE(qtb_westl,  qtb_westg,  kmax, my_real, mpi_sum, commcol, mpierr)
+                    call MPI_ALLREDUCE(ub_l,   ub_g,   kmax, my_real, mpi_sum, commcol, mpierr)
+                    call MPI_ALLREDUCE(vb_l,   vb_g,   kmax, my_real, mpi_sum, commcol, mpierr)
+                    call MPI_ALLREDUCE(thlb_l, thlb_g, kmax, my_real, mpi_sum, commcol, mpierr)
+                    call MPI_ALLREDUCE(qtb_l,  qtb_g,  kmax, my_real, mpi_sum, commcol, mpierr)
 
-                    ub_westg   = ub_westg   / nprocy
-                    vb_westg   = vb_westg   / nprocy
-                    thlb_westg = thlb_westg / nprocy
-                    qtb_westg  = qtb_westg  / nprocy
+                    ub_g   = ub_g   / nprocy
+                    vb_g   = vb_g   / nprocy
+                    thlb_g = thlb_g / nprocy
+                    qtb_g  = qtb_g  / nprocy
 
                     !
                     ! Calculate mean tendency
                     !
-                    ut_west   = tau_i * (unudge   - ub_westg)
-                    vt_west   = tau_i * (vnudge   - vb_westg)
-                    thlt_west = tau_i * (thlnudge - thlb_westg)
-                    qtt_west  = tau_i * (qtnudge  - qtb_westg)
+                    ut_west   = tau_i * (unudge   - ub_g)
+                    vt_west   = tau_i * (vnudge   - vb_g)
+                    thlt_west = tau_i * (thlnudge - thlb_g)
+                    qtt_west  = tau_i * (qtnudge  - qtb_g)
 
                     !
                     ! Apply tendency
@@ -289,6 +295,7 @@ contains
                 end do
             end if ! lperturb_boundary
 
+
             if (lrecycle) then
 
                 if (myidx == 0) then
@@ -299,51 +306,103 @@ contains
                         tau_i = 1. / tau_recycle
                     end if
 
-                    ub_westl   = 0
-                    vb_westl   = 0
-                    thlb_westl = 0
-                    qtb_westl  = 0
-
+                    !
                     ! Calculate mean profiles over source area
+                    !
+                    ub_l   = 0
+                    vb_l   = 0
+                    wb_l   = 0
+                    thlb_l = 0
+                    qtb_l  = 0
+
                     do i=recycle_source+2, recycle_source+recycle_width+1
                         do k=1,kmax
                             do j=2,j1
-                                ub_westl  (k) = ub_westl  (k) + u0  (i,j,k)
-                                vb_westl  (k) = vb_westl  (k) + v0  (i,j,k)
-                                thlb_westl(k) = thlb_westl(k) + thl0(i,j,k)
-                                qtb_westl (k) = qtb_westl (k) + qt0 (i,j,k)
+                                ub_l  (k) = ub_l  (k) + u0  (i,j,k)
+                                vb_l  (k) = vb_l  (k) + v0  (i,j,k)
+                                wb_l  (k) = wb_l  (k) + w0  (i,j,k)
+                                thlb_l(k) = thlb_l(k) + thl0(i,j,k)
+                                qtb_l (k) = qtb_l (k) + qt0 (i,j,k)
                             end do
                         end do
                     end do
 
-                    ub_westl   = ub_westl   / (recycle_width*jmax)
-                    vb_westl   = vb_westl   / (recycle_width*jmax)
-                    thlb_westl = thlb_westl / (recycle_width*jmax)
-                    qtb_westl  = qtb_westl  / (recycle_width*jmax)
+                    ub_l   = ub_l   / (recycle_width*jmax)
+                    vb_l   = vb_l   / (recycle_width*jmax)
+                    wb_l   = wb_l   / (recycle_width*jmax)
+                    thlb_l = thlb_l / (recycle_width*jmax)
+                    qtb_l  = qtb_l  / (recycle_width*jmax)
 
                     !
                     ! Calculate MPI mean in y-direction
                     ! TO-DO: write routine in modmpi
                     !
-                    call MPI_ALLREDUCE(ub_westl,   ub_westg,   kmax, my_real, mpi_sum, commcol, mpierr)
-                    call MPI_ALLREDUCE(vb_westl,   vb_westg,   kmax, my_real, mpi_sum, commcol, mpierr)
-                    call MPI_ALLREDUCE(thlb_westl, thlb_westg, kmax, my_real, mpi_sum, commcol, mpierr)
-                    call MPI_ALLREDUCE(qtb_westl,  qtb_westg,  kmax, my_real, mpi_sum, commcol, mpierr)
+                    call MPI_ALLREDUCE(ub_l,   ub_g,   kmax, my_real, mpi_sum, commcol, mpierr)
+                    call MPI_ALLREDUCE(vb_l,   vb_g,   kmax, my_real, mpi_sum, commcol, mpierr)
+                    call MPI_ALLREDUCE(wb_l,   wb_g,   kmax, my_real, mpi_sum, commcol, mpierr)
+                    call MPI_ALLREDUCE(thlb_l, thlb_g, kmax, my_real, mpi_sum, commcol, mpierr)
+                    call MPI_ALLREDUCE(qtb_l,  qtb_g,  kmax, my_real, mpi_sum, commcol, mpierr)
 
-                    ub_westg   = ub_westg   / nprocy
-                    vb_westg   = vb_westg   / nprocy
-                    thlb_westg = thlb_westg / nprocy
-                    qtb_westg  = qtb_westg  / nprocy
+                    ub_g   = ub_g   / nprocy
+                    vb_g   = vb_g   / nprocy
+                    wb_g   = wb_g   / nprocy
+                    thlb_g = thlb_g / nprocy
+                    qtb_g  = qtb_g  / nprocy
+
+                    !
+                    ! Calculate mean profiles over target area
+                    !
+                    ubt_l   = 0
+                    vbt_l   = 0
+                    wbt_l   = 0
+                    thlbt_l = 0
+                    qtbt_l  = 0
+
+                    do i=recycle_target+2, recycle_target+recycle_width+1
+                        do k=1,kmax
+                            do j=2,j1
+                                ubt_l  (k) = ubt_l  (k) + u0  (i,j,k)
+                                vbt_l  (k) = vbt_l  (k) + v0  (i,j,k)
+                                wbt_l  (k) = wbt_l  (k) + w0  (i,j,k)
+                                thlbt_l(k) = thlbt_l(k) + thl0(i,j,k)
+                                qtbt_l (k) = qtbt_l (k) + qt0 (i,j,k)
+                            end do
+                        end do
+                    end do
+
+                    ubt_l   = ubt_l   / (recycle_width*jmax)
+                    vbt_l   = vbt_l   / (recycle_width*jmax)
+                    wbt_l   = wbt_l   / (recycle_width*jmax)
+                    thlbt_l = thlbt_l / (recycle_width*jmax)
+                    qtbt_l  = qtbt_l  / (recycle_width*jmax)
+
+                    !
+                    ! Calculate MPI mean in y-direction
+                    ! TO-DO: write routine in modmpi
+                    !
+                    call MPI_ALLREDUCE(ubt_l,   ubt_g,   kmax, my_real, mpi_sum, commcol, mpierr)
+                    call MPI_ALLREDUCE(vbt_l,   vbt_g,   kmax, my_real, mpi_sum, commcol, mpierr)
+                    call MPI_ALLREDUCE(wbt_l,   wbt_g,   kmax, my_real, mpi_sum, commcol, mpierr)
+                    call MPI_ALLREDUCE(thlbt_l, thlbt_g, kmax, my_real, mpi_sum, commcol, mpierr)
+                    call MPI_ALLREDUCE(qtbt_l,  qtbt_g,  kmax, my_real, mpi_sum, commcol, mpierr)
+
+                    ubt_g   = ubt_g   / nprocy
+                    vbt_g   = vbt_g   / nprocy
+                    wbt_g   = wbt_g   / nprocy
+                    thlbt_g = thlbt_g / nprocy
+                    qtbt_g  = qtbt_g  / nprocy
+
 
                     ! Add perturbations to goal area
                     ioffs = recycle_source - recycle_target
                     do i=recycle_target+2, recycle_target+recycle_width+1
                         do k=1,kmax_recycle
                             do j=2,j1
-                                up(i,j,k)   = up(i,j,k)   + (u0  (i+ioffs,j,k) - ub_westg(k)  ) * tau_i
-                                vp(i,j,k)   = vp(i,j,k)   + (v0  (i+ioffs,j,k) - vb_westg(k)  ) * tau_i
-                                thlp(i,j,k) = thlp(i,j,k) + (thl0(i+ioffs,j,k) - thlb_westg(k)) * tau_i
-                                qtp(i,j,k)  = qtp(i,j,k)  + (qt0 (i+ioffs,j,k) - qtb_westg(k) ) * tau_i
+                                up(i,j,k)   = up(i,j,k)   + ((u0  (i,j,k) - ubt_g(k)  ) - (u0  (i+ioffs,j,k) - ub_g(k)  )) * tau_i
+                                vp(i,j,k)   = vp(i,j,k)   + ((v0  (i,j,k) - vbt_g(k)  ) - (v0  (i+ioffs,j,k) - vb_g(k)  )) * tau_i
+                                wp(i,j,k)   = wp(i,j,k)   + ((w0  (i,j,k) - wbt_g(k)  ) - (w0  (i+ioffs,j,k) - wb_g(k)  )) * tau_i
+                                thlp(i,j,k) = thlp(i,j,k) + ((thl0(i,j,k) - thlbt_g(k)) - (thl0(i+ioffs,j,k) - thlb_g(k))) * tau_i
+                                qtp(i,j,k)  = qtp(i,j,k)  + ((qt0 (i,j,k) - qtbt_g(k) ) - (qt0 (i+ioffs,j,k) - qtb_g(k) )) * tau_i
                             end do
                         end do
                     end do
