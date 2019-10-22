@@ -398,11 +398,11 @@ contains
                     do i=recycle_target+2, recycle_target+recycle_width+1
                         do k=1,kmax_recycle
                             do j=2,j1
-                                up(i,j,k)   = up(i,j,k)   + ((u0  (i,j,k) - ubt_g(k)  ) - (u0  (i+ioffs,j,k) - ub_g(k)  )) * tau_i
-                                vp(i,j,k)   = vp(i,j,k)   + ((v0  (i,j,k) - vbt_g(k)  ) - (v0  (i+ioffs,j,k) - vb_g(k)  )) * tau_i
-                                wp(i,j,k)   = wp(i,j,k)   + ((w0  (i,j,k) - wbt_g(k)  ) - (w0  (i+ioffs,j,k) - wb_g(k)  )) * tau_i
-                                thlp(i,j,k) = thlp(i,j,k) + ((thl0(i,j,k) - thlbt_g(k)) - (thl0(i+ioffs,j,k) - thlb_g(k))) * tau_i
-                                qtp(i,j,k)  = qtp(i,j,k)  + ((qt0 (i,j,k) - qtbt_g(k) ) - (qt0 (i+ioffs,j,k) - qtb_g(k) )) * tau_i
+                                up(i,j,k)   = up(i,j,k)   + ( (u0  (i+ioffs,j,k) - ub_g(k)  ) - (u0  (i,j,k) - ubt_g(k)  ) ) * tau_i
+                                vp(i,j,k)   = vp(i,j,k)   + ( (v0  (i+ioffs,j,k) - vb_g(k)  ) - (v0  (i,j,k) - vbt_g(k)  ) ) * tau_i
+                                wp(i,j,k)   = wp(i,j,k)   + ( (w0  (i+ioffs,j,k) - wb_g(k)  ) - (w0  (i,j,k) - wbt_g(k)  ) ) * tau_i
+                                thlp(i,j,k) = thlp(i,j,k) + ( (thl0(i+ioffs,j,k) - thlb_g(k)) - (thl0(i,j,k) - thlbt_g(k)) ) * tau_i
+                                qtp(i,j,k)  = qtp(i,j,k)  + ( (qt0 (i+ioffs,j,k) - qtb_g(k) ) - (qt0 (i,j,k) - qtbt_g(k) ) ) * tau_i
                             end do
                         end do
                     end do
